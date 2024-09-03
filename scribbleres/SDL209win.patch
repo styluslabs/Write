@@ -1,0 +1,130 @@
+diff -r 8feb5da6f2fb android-project/app/src/main/java/org/libsdl/app/SDLActivity.java
+--- a/android-project/app/src/main/java/org/libsdl/app/SDLActivity.java	Tue Oct 30 20:11:02 2018 +0300
++++ b/android-project/app/src/main/java/org/libsdl/app/SDLActivity.java	Mon Mar 16 02:24:24 2020 -0700
+@@ -1032,6 +1032,8 @@
+         return SDLActivity.mSurface.getNativeSurface();
+     }
+ 
++    public static SurfaceView getSDLSurface() { return SDLActivity.mSurface; }
++
+     // Input
+ 
+     /**
+@@ -1341,7 +1343,7 @@
+     };
+ 
+     public void onSystemUiVisibilityChange(int visibility) {
+-        if (SDLActivity.mFullscreenModeActive && (visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0 || (visibility & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0) {
++        if (SDLActivity.mFullscreenModeActive && ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0 || (visibility & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0)) {
+ 
+             Handler handler = getWindow().getDecorView().getHandler();
+             if (handler != null) {
+@@ -1512,7 +1514,7 @@
+         setFocusableInTouchMode(true);
+         requestFocus();
+         setOnKeyListener(this);
+-        setOnTouchListener(this);
++        //setOnTouchListener(this);
+ 
+         mDisplay = ((WindowManager)context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
+         mSensorManager = (SensorManager)context.getSystemService(Context.SENSOR_SERVICE);
+@@ -1535,7 +1537,7 @@
+         setFocusableInTouchMode(true);
+         requestFocus();
+         setOnKeyListener(this);
+-        setOnTouchListener(this);
++        //setOnTouchListener(this);
+         enableSensor(Sensor.TYPE_ACCELEROMETER, true);
+     }
+ 
+@@ -2171,4 +2173,3 @@
+        mClipMgrOld.setText(string);
+     }
+ }
+-
+diff -r 8feb5da6f2fb src/SDL_internal.h
+--- a/src/SDL_internal.h	Tue Oct 30 20:11:02 2018 +0300
++++ b/src/SDL_internal.h	Mon Mar 16 02:24:24 2020 -0700
+@@ -35,7 +35,8 @@
+ #define SDL_VARIABLE_LENGTH_ARRAY
+ #endif
+ 
+-#include "dynapi/SDL_dynapi.h"
++/*#include "dynapi/SDL_dynapi.h"*/
++#define SDL_DYNAMIC_API 0
+ 
+ #if SDL_DYNAMIC_API
+ #include "dynapi/SDL_dynapi_overrides.h"
+diff -r 8feb5da6f2fb src/video/windows/SDL_windowskeyboard.c
+--- a/src/video/windows/SDL_windowskeyboard.c	Tue Oct 30 20:11:02 2018 +0300
++++ b/src/video/windows/SDL_windowskeyboard.c	Mon Mar 16 02:24:24 2020 -0700
+@@ -229,28 +229,37 @@
+ }
+ 
+ void
++WIN_UpdateTextInputRect(SDL_VideoData *videodata)
++{
++    HIMC himc = ImmGetContext(videodata->ime_hwnd_current);
++    if (!himc)
++        return;
++
++    CANDIDATEFORM cf;
++    cf.dwIndex = 0;
++    cf.dwStyle = CFS_EXCLUDE;
++    cf.ptCurrentPos.x = videodata->ime_rect.x;
++    cf.ptCurrentPos.y = videodata->ime_rect.y;
++    cf.rcArea.left = videodata->ime_rect.x;
++    cf.rcArea.top = videodata->ime_rect.y;
++    cf.rcArea.right = videodata->ime_rect.x + videodata->ime_rect.w;
++    cf.rcArea.bottom = videodata->ime_rect.y + videodata->ime_rect.h;
++    ImmSetCandidateWindow(himc, &cf);
++
++    ImmReleaseContext(videodata->ime_hwnd_current, himc);
++}
++
++void
+ WIN_SetTextInputRect(_THIS, SDL_Rect *rect)
+ {
+-    SDL_VideoData *videodata = (SDL_VideoData *)_this->driverdata;
+-    HIMC himc = 0;
+-
+     if (!rect) {
+         SDL_InvalidParamError("rect");
+         return;
+     }
+ 
++    SDL_VideoData *videodata = (SDL_VideoData *)_this->driverdata;
+     videodata->ime_rect = *rect;
+-
+-    himc = ImmGetContext(videodata->ime_hwnd_current);
+-    if (himc)
+-    {
+-        COMPOSITIONFORM cf;
+-        cf.ptCurrentPos.x = videodata->ime_rect.x;
+-        cf.ptCurrentPos.y = videodata->ime_rect.y;
+-        cf.dwStyle = CFS_FORCE_POSITION;
+-        ImmSetCompositionWindow(himc, &cf);
+-        ImmReleaseContext(videodata->ime_hwnd_current, himc);
+-    }
++    WIN_UpdateTextInputRect(videodata);
+ }
+ 
+ #ifdef SDL_DISABLE_WINDOWS_IME
+@@ -370,7 +379,8 @@
+     videodata->ime_available = SDL_TRUE;
+     IME_UpdateInputLocale(videodata);
+     IME_SetupAPI(videodata);
+-    videodata->ime_uiless = UILess_SetupSinks(videodata);
++    // FIXME: the implementation of UILess IME is incomplete so we disable it by commenting this out:
++    //videodata->ime_uiless = UILess_SetupSinks(videodata);
+     IME_UpdateInputLocale(videodata);
+     IME_Disable(videodata, hwnd);
+ }
+@@ -882,6 +892,7 @@
+         *lParam = 0;
+         break;
+     case WM_IME_STARTCOMPOSITION:
++        WIN_UpdateTextInputRect(videodata);
+         trap = SDL_TRUE;
+         break;
+     case WM_IME_COMPOSITION:

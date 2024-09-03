@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+# desktop entry spec version
+Version=1.0
+Name=Write
+Comment=A word processor for handwriting
+Exec=/opt/Write/Write
+Icon=Write144x144
+MimeType=image/svg+xml;
+Terminal=false
+Categories=Education

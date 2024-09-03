@@ -1,0 +1,390 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- iOS UI -->
+  <string name="enter_doc_name">Enter Document Name</string>
+  <string name="doc_conflict">Document Conflict</string>
+  <string name="ios_doc_save_as">Enter new document name, then choose save location</string>
+  <string name="then_choose_dest">then choose destination</string>
+  <string name="ios_conflict_prompt">Please choose a new location for version of %@ modified %@ by %@</string>
+  <string name="docs_createdoc">Create Document</string>
+
+  <string name="menu_invert_colors">Invert Colors</string>
+  <string name="menu_select_pages">Select Pages</string>
+  <string name="menu_split_tb">Split T/B</string>
+  <string name="menu_split_bt">Split B/T</string>
+  <string name="menu_split_lr">Split L/R</string>
+  <string name="menu_split_rl">Split R/L</string>
+
+  <string name="clippings">Clippings</string>
+  <string name="color">Color</string>
+  <string name="documents">Documents</string>
+  <string name="default">Default</string>
+  <string name="discard">Discard</string>
+
+  <string name="menu_prevview">Previous View</string>
+  <string name="menu_nextview">Next View</string>
+  <string name="menu_fullscreen">Fullscreen</string>
+  <string name="menu_splitview">Split View</string>
+  <string name="menu_movepage">Move Page...</string>
+  <string name="menu_saveas">Save As...</string>
+  <string name="menu_insertdoc">Insert Document...</string>
+  <string name="menu_exportpdf">Export PDF...</string>
+  <string name="menu_createwhiteboad">Create Whiteboard...</string>
+  <string name="menu_openwhiteboard">Open Whiteboard...</string>
+  <string name="menu_whiteboardinfo">Whiteboard Info...</string>
+  <string name="menu_syncedits">Sync Edits</string>
+  <string name="menu_syncview">Sync View</string>
+  <string name="menu_viewmaster">View Master</string>
+  <string name="menu_sendimg">Send Page Image</string>
+  <string name="menu_sendpdf">Send PDF</string>
+  <string name="menu_addbkmk">Add Bookmark</string>
+  <string name="menu_whiteboard">Whiteboard</string>
+  <string name="menu_view">View</string>
+  <string name="tp_insertcurr">Insert Current</string>
+  <string name="tp_highlight">Highlight</string>
+  <string name="tp_snaptogrid">Snap to Grid</string>
+  <string name="tp_drawlines">Draw Lines</string>
+  <string name="tp_ephemeral">Ephemeral</string>
+  <string name="tp_useaspen">Use as Pen</string>
+  <string name="link_enterurl">Enter URL:</string>
+  <string name="link_choosebkmk">or choose bookmark:</string>
+  <string name="save_prompt">The document has never been saved.\nWhat would you like to do?</string>
+  <string name="save_unsaveddoc">Unsaved document</string>
+  <string name="docs_opencopy">Open Copy</string>
+  <string name="docs_covertdocs">Convert Documents</string>
+  <string name="docs_savehere">Save Here</string>
+  <string name="docs_savedocument">Save Document</string>
+  <string name="docs_openwhiteboard">Open Whiteboard</string>
+  <string name="docs_docexists">Document already exists</string>
+  <string name="docs_papertype">Paper type</string>
+  <string name="docs_newfolder">New Folder/</string>
+  <string name="docs_createfolder">Create folder</string>
+  <string name="docs_folderexists">Folder already exists</string>
+  <string name="docs_undodel">Undo delete "%s"</string>
+  <string name="swb_get_started">Visit %s to get started</string>
+  <string name="swb_title">Title</string>
+  <string name="swb_id">ID</string>
+  <string name="swb_lecture_mode">Lecture mode</string>
+  <string name="swb_create_whiteboard">Create Whiteboard</string>
+
+  <string name="ps_screen">Screen</string>
+  <string name="ps_screenlandscape">Screen (landscape)</string>
+  <string name="ps_letter">Letter</string>
+  <string name="ps_letterlandscape">Letter (landscape)</string>
+  <string name="ps_a4">A4</string>
+  <string name="ps_a4landscape">A4 (landscape)</string>
+  <string name="ps_clipwarning">This page size will clip content!</string>
+
+  <string name="pref_wontsave">Preferences will not be saved because some were set from command line.</string>
+  <string name="pref_inputsection">Input</string>
+  <string name="pref_inputignore">Ignore</string>
+  <string name="pref_mousemode">Mouse input mode</string>
+  <string name="pref_singletouchmode">Single-touch mode</string>
+  <string name="pref_draw">Draw</string>
+  <string name="pref_panandzoom">Pan and zoom</string>
+  <string name="pref_multitouchmode">Multi-touch mode</string>
+  <string name="pref_panfromedge">Pan from edge when drawing</string>
+  <string name="pref_ignorefirstpoint">Ignore first point from pen</string>
+  <string name="pref_pressurescale">Pen pressure scaling</string>
+  <string name="pref_smoothing">Smoothing</string>
+  <string name="pref_simplification">Simplification</string>
+  <string name="pref_uisection">User Interface</string>
+  <string name="pref_changesrestart">Changes may not take effect until Write is restarted.</string>
+  <string name="pref_returnprevtool">Return to previous tool</string>
+  <string name="pref_popupseltools">Popup selection tools</string>
+  <string name="pref_hidescroller">Hide scroll handle</string>
+  <string name="pref_savepen_manual">Manual</string>
+  <string name="pref_savepen_recent">Recent pens</string>
+  <string name="pref_savepen_perdoc">Recent per document</string>
+  <string name="pref_savepen">Saving pens</string>
+  <string name="pref_cursor_hide">Hide</string>
+  <string name="pref_cursor_system">System</string>
+  <string name="pref_cursor_custom">Custom</string>
+  <string name="pref_cursor">Cursor mode</string>
+  <string name="pref_doclist_sort">Sort order</string>
+  <string name="pref_firstpagethumb">Use first page for thumbnail</string>
+  <string name="pref_promptonsave">Prompt before saving document</string>
+  <string name="pref_reopenlastdoc">Reopen last document</string>
+  <string name="pref_generalsection">General</string>
+  <string name="pref_growwithstrokes">Grow page with strokes</string>
+  <string name="pref_freeeraseimage">Apply free eraser to images</string>
+  <string name="pref_ruledsection">Ruled Tools</string>
+  <string name="pref_linearcolorinterp">Linear color interpolation (reopen)</string>
+  <string name="pref_reduceimgsize">Reduce image size</string>
+  <string name="pref_filetype">File type</string>
+  <string name="pref_forcedpi">Force screen DPI (reopen)</string>
+  <string name="pref_swbserver">Whiteboard server</string>
+  <string name="pref_checkforupdates">Check for updates (weekly)</string>
+  <string name="pref_showadvprefs">Show advanced preferences</string>
+  <string name="pref_cleardocconfig">Clear Doc. Config.</string>
+  <string name="pref_checkforupdate">Check for Update</string>
+  <string name="pref_doclisticonsize">Document list icon size</string>
+  <string name="pref_palmreject">Palm rejection threshold</string>
+  <string name="pref_gpurender">GPU rendering (reopen)</string>
+
+  <string name="conv_convert">Convert</string>
+  <string name="conv_convertprompt">Write documents in this folder will be converted to %s format (the default set in Preferences) in folder "%s"</string>
+  <string name="conv_converting2">Converting...</string>
+  <string name="conv_convertingprog">Converting Documents: %d%%</string>
+  <string name="conv_convertingname">Converting %s</string>
+  <string name="conv_results">Conversion Results</string>
+
+  <!-- new translations -->
+  <string name="bookmarks">Bookmarks</string>
+  <string name="margin_content">Margin Content</string>
+  <string name="untitled">Untitled</string>
+  <string name="menu_pathselect">Path Select</string>
+  <string name="menu_delete">Delete</string>
+  <string name="menu_invert">Invert</string>
+  <string name="menu_ungroup">Ungroup</string>
+  <string name="menu_createlink">Create Link</string>
+  <string name="menu_createlink2">Create Link...</string>
+  <string name="menu_insertimage">Insert Image...</string>
+  <string name="menu_preferences">Preferences...</string>
+  <string name="menu_pagesetup2">Page Setup...</string>
+  <string name="menu_custompen">Custom Pen...</string>
+  <string name="menu_pensetup">Pen Setup...</string>
+  <string name="menu_discard">Discard Changes...</string>
+  <string name="tp_pressure">Pressure</string>  <!-- Pressure Sensitivity -->
+  <string name="tp_pentip">Pen Tip</string>
+  <string name="tp_penflat">Flat</string>
+  <string name="tp_penround">Round</string>
+  <string name="tp_penchisel">Chisel</string>
+  <string name="tp_varywidth">Vary Width</string>
+  <string name="tp_speed">Speed</string>
+  <string name="tp_direction">Direction</string>
+  <string name="tp_dash">Dash</string>
+  <string name="tp_gap">Gap</string>
+
+  <!-- page setup dialog -->
+  <string name="ps_page_size">Page size</string>
+  <string name="ps_width">Width</string>
+  <string name="ps_height">Height</string>
+  <string name="ps_ruling">Ruling</string>
+  <string name="ps_xruling">X Ruling</string>
+  <string name="ps_yruling">Y Ruling</string>
+  <string name="ps_leftmargin">Left Margin</string>
+
+  <string name="ps_applytoall">Apply to all existing pages</string>
+  <string name="ps_applyselected">Apply to selected pages</string>
+  <string name="ps_docdefault">Document default</string>
+  <string name="ps_globaldefault">Global default</string>
+  <string name="ps_pagecolor">Page Color</string>
+  <string name="ps_rulecolor">Rule Color</string>
+
+  <string name="page_size_prompt">Page Size</string>
+  <string name="page_sizes_current"        >Current</string>
+  <string name="page_sizes_screenportrait" >Device screen (portrait)</string>
+  <string name="page_sizes_screenlandscape">Device screen (landscape)</string>
+
+  <string name="page_ruling_prompt">Ruling</string>
+  <string name="page_rulings_current"    >Current</string>
+  <string name="page_rulings_plain"      >Plain</string>
+  <string name="page_rulings_wideruled"  >Wide ruled</string>
+  <string name="page_rulings_mediumruled">Medium ruled</string>
+  <string name="page_rulings_narrowruled">Narrow ruled</string>
+  <string name="page_rulings_coarsegrid" >Coarse grid</string>
+  <string name="page_rulings_mediumgrid" >Medium grid</string>
+  <string name="page_rulings_finegrid"   >Fine grid</string>
+
+  <string name="tp_savepen">Save Pen</string>
+  <string name="tp_pressure_none">0 (none)</string>
+  <string name="tp_pressure_low" >0.25 (low)</string>
+  <string name="tp_pressure_med" >0.5 (med)</string>
+  <string name="tp_pressure_high">1 (high)</string>
+
+  <string name="pref_coldet_title">Column detection</string>  <!-- Column detect mode -->
+  <string name="pref_coldet_s">Use vertical lines as reflow limits</string>
+  <string name="pref_col_detect_none">None</string>
+  <string name="pref_col_detect_norm">Normal</string>
+  <string name="pref_col_detect_full">Full page</string>
+
+  <string name="pref_view_title">View mode</string>
+  <string name="pref_view_s">Single page or continuous scrolling</string>
+  <string name="pref_view_single">Single page</string>
+  <string name="pref_view_vert"  >Vertical scrolling</string>  <!-- Continuous Vertical -->
+  <string name="pref_view_horz"  >Horizontal scrolling</string>  <!-- Continuous Horizontal -->
+
+  <string name="pref_vol_btn_title">Volume button action</string>
+  <string name="pref_vol_btn_s">If hardware volume buttons present</string>
+  <string name="pref_vol_btn_name"    >None (volume)</string>
+  <string name="pref_vol_btn_undo"    >Undo/Redo</string>
+  <string name="pref_vol_btn_zoom"    >Zoom out/in</string>
+  <string name="pref_vol_btn_nextprev">Next page/Prev page</string>
+  <string name="pref_vol_btn_prevnext">Prev page/Next page</string>
+  <string name="pref_vol_btn_penbtn"  >Emulate pen button</string>
+
+  <string name="pref_pen_button_title">Pen button tool</string>
+  <string name="pref_pen_button_s">Tool activated by pen button, if present</string>
+  <string name="pref_pen_btn_none"   >None</string>
+  <string name="pref_pen_btn_pan"    >Pan</string>
+  <string name="pref_pen_btn_erase"  >Erase</string>
+  <string name="pref_pen_btn_select" >Select</string>
+  <string name="pref_pen_btn_rectsel">Rectangular Select</string>
+  <string name="pref_pen_btn_lasso"  >Lasso Select</string>
+  <string name="pref_pen_btn_inssp"  >Insert space</string>
+
+  <string name="pref_thumbnail_title">Icon size</string>  <!-- Thumbnail size -->
+  <string name="pref_thumb_small">Small</string>
+  <string name="pref_thumb_med"  >Medium</string>
+  <string name="pref_thumb_large">Large</string>
+
+  <!-- Now a menu in doc list, so we use title case instead -->
+  <string name="pref_docsort_title">Document sort order</string>
+  <string name="pref_docsort_created" >Last Created</string>
+  <string name="pref_docsort_modified">Last Modified</string>
+  <string name="pref_docsort_bytitle" >Name</string>
+
+  <string name="pref_ui_theme">Theme</string>
+  <string name="pref_ui_theme_dark">Dark</string>
+  <string name="pref_ui_theme_light">Light</string>
+
+  <string name="pref_minwordsep">Minimum reflow word break</string>  <!-- Minimum reflow word break size -->
+  <string name="pref_minwordsep_s">As fraction of Y ruling</string>
+
+  <string name="pref_resetprefs">Reset Preferences</string>
+  <string name="pref_resetprefs_s">Reset all preferences and custom pens to defaults</string>
+
+
+  <!-- old translations -->
+  <string name="app_name">Write</string>
+  <string name="no_notes">No Documents Yet</string>
+  <string name="menu_viewasgrid">View as Grid</string>
+  <string name="menu_viewaslist">View as List</string>
+  <string name="menu_insertnote">New Document</string>
+  <string name="menu_addfile">Add File to List</string>
+  <string name="menu_prefs">Preferences</string>
+  <string name="menu_deletedoc">Delete Document</string>
+  <string name="menu_rename">Rename</string>
+  <string name="menu_savefile">Save File</string>
+  <string name="menu_openfile">Open File</string>
+  <string name="menu_help">Help</string>
+  <string name="menu_undo">Undo</string>
+  <string name="menu_redo">Redo</string>
+  <string name="confirm">OK</string>
+  <string name="cancel">Cancel</string>
+  <string name="yes">Yes</string>
+  <string name="no">No</string>
+  <string name="error">Error</string>
+  <string name="edit_title">Edit Document Title</string>
+  <string name="set_link_target">Set Link Location</string>
+
+  <string name="menu_newfolder">New Folder</string>
+  <string name="menu_deletefolder">Delete Folder</string>
+  <string name="menu_movenote">Move To...</string>
+  <string name="msg_movenote">Select Folder</string>
+  <string name="edit_tag">Rename Folder</string>
+  <string name="unfiled">Unfiled</string>
+  <string name="newcolor">New Color</string>
+  <string name="select">Select</string>
+  <string name="create">Create</string>
+
+  <!-- more strings! -->
+  <string name="menu_bookmarks">Show Bookmarks</string>
+  <string name="menu_prevpage">Prev Page</string>
+  <string name="menu_nextpage">Next Page</string>
+  <string name="menu_selection">Selection</string>
+  <string name="menu_cut">Cut</string>
+  <string name="menu_copy">Copy</string>
+  <string name="menu_paste">Paste</string>
+  <string name="menu_duplicate">Duplicate</string>
+  <string name="menu_deletesel">Delete Selection</string>
+  <string name="menu_selectall">Select All</string>
+  <string name="menu_selsimilar">Select Similar</string>
+  <string name="menu_invsel">Invert Selection</string>
+  <string name="menu_document">Document</string>
+  <string name="menu_senddoc">Send Document</string>
+  <string name="menu_sendpage">Send Current Page</string>
+  <string name="menu_exportdoc">Export Document</string>
+  <string name="menu_exportaspdf">Export PDF</string>
+  <string name="menu_pagesetup">Page Setup</string>
+  <string name="menu_page">Page</string>
+  <string name="menu_newpageafter">New Page After</string>
+  <string name="menu_newpagebefore">New Page Before</string>
+  <string name="menu_deletepage">Delete Page</string>
+  <string name="menu_expanddown">Expand Down</string>
+  <string name="menu_expandright">Expand Right</string>
+  <string name="menu_zoom">Zoom</string>
+  <string name="menu_zoomin">Zoom In</string>
+  <string name="menu_zoomout">Zoom Out</string>
+  <string name="menu_zoompage">Zoom Page</string>
+  <string name="menu_zoomwidth">Zoom Width</string>
+  <string name="menu_resetzoom">Reset Zoom</string>
+  <string name="menu_webview">Show Web View</string>
+  <string name="menu_exportdocs">Backup Documents</string>
+  <string name="menu_addbookmark">Bookmark</string>
+  <string name="menu_strokeeraser">Stroke Eraser</string>
+  <string name="menu_rulederaser">Ruled Eraser</string>
+  <string name="menu_freeeraser">Free Eraser</string>
+  <string name="menu_rectsel">Rect Select</string>
+  <string name="menu_ruledsel">Ruled Select</string>
+  <string name="menu_lassosel">Lasso Select</string>
+  <string name="menu_insspace">Insert Space</string>
+  <string name="menu_ruledinsspace">Ruled Insert Space</string>
+  <string name="menu_insert">Insert Image</string>
+  <string name="menu_captureimg">From Camera</string>
+  <string name="menu_selectimg">From File</string>
+
+  <!-- dialogs -->
+  <string name="noimage_msg">Error opening image</string>
+  <string name="resetprefs_title">Confirm Reset Preferences</string>
+  <string name="resetprefs_prompt">Are you sure you want to reset all preferences?</string>
+  <string name="resetprefs_msg">Preferences reset</string>
+  <string name="saveerror_msg">Error saving to </string>
+  <string name="openerror_msg">Error opening file: </string>
+
+  <!-- pref catagories -->
+  <string name="prefs_input">Input and UI</string>
+  <string name="prefs_drawing">Drawing</string>
+  <string name="prefs_doclist">Document List</string>
+  <string name="prefs_advanced">Advanced</string>
+
+  <!-- input prefs -->
+  <string name="prefcat_penandtouch">Pen and Touch</string>
+  <string name="prefcat_interface">Interface</string>
+  <string name="pref_forcepen">Force pen</string>
+  <string name="pref_forcepen_s">Override automatic pen detection</string>
+  <string name="pref_touchwindow">Touch rejection window</string>
+  <string name="pref_touchwindow_s">Delay in ms before accepting touch input after release of active pen. Set to zero to disable.</string>
+  <string name="pref_panedge">Pan from edge</string>
+  <string name="pref_panedge_s">Swipe in from edge of screen to pan</string>
+  <string name="pref_showpantool">Show pan tool</string>
+  <string name="pref_showpantool_s">To allow panning if all touch input is disabled</string>
+  <string name="pref_returntopen">Return to pen after using other tool</string>
+  <string name="pref_returntopen_s">Select other tool twice to lock</string>
+  <string name="pref_undosteps">Undo dial steps</string>
+  <string name="pref_undosteps_s">Number of undo/redo actions per revolution of undo dial</string>
+  <string name="pref_lefthanded">Left handed mode</string>
+  <string name="pref_lefthanded_s">UI layout for left-handed users. On some devices, video does not work when web view is on right.</string>
+  <string name="pref_screenon">Keep screen on</string>
+  <string name="pref_screenon_s">When document is open</string>
+  <string name="pref_timerange">Display time range</string>
+  <string name="pref_timerange_s">For current page</string>
+
+  <!-- drawing prefs -->
+  <string name="prefcat_growingpage">Growing Page</string>
+  <string name="prefcat_performance">Performance</string>
+  <string name="pref_reflow">Insert space reflow</string>
+  <string name="pref_reflow_s">Reflow strokes beyond right edge of page</string>
+  <string name="pref_blankyruling">Effective Y ruling for unruled pages</string>
+  <string name="pref_blankyruling_s">When ruled mode tools are used on unruled page</string>
+  <string name="pref_limittosel">Limit insert space and erase to selection</string>
+  <string name="pref_limittosel_s">If active selection is visible</string>
+  <string name="pref_insspaceerase">Erase when removing space</string>
+  <string name="pref_insspaceerase_s">Erase strokes covered by ruled insert space</string>
+  <string name="pref_growdown">Auto grow page down</string>
+  <string name="pref_growdown_s">Increase height of page when drawing near bottom</string>
+  <string name="pref_growright">Auto grow page right</string>
+  <string name="pref_growright_s">Increase width of page when drawing near right edge</string>
+  <string name="pref_growwithpen">Auto grow page with strokes</string>
+  <string name="pref_growwithpen_s">If disabled, use insert space or move selection to grow page</string>
+  <string name="pref_insemptyspace">Insert empty space</string>
+  <string name="pref_insemptyspace_s">Allow growing page by inserting empty space</string>
+  <string name="pref_applypentosel">Apply pen to selection</string>
+
+    <!-- About dialog -->
+  <string name="about_title">About</string>
+  <string name="about_summary">About Write</string>
+  <string name="about_text">Created by: Stylus Labs\nWeb: http://www.styluslabs.com\nEmail: support@styluslabs.com\n\nWrite is a word processor for handwriting.\nAlso available for Windows tablet PCs.</string>
+
+</resources>

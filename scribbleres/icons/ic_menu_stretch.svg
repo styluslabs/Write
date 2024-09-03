@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.2" baseProfile="tiny" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+	 x="0px" y="0px" width="96px" height="96px" viewBox="0 0 96 96" xml:space="preserve">
+<g class="icon">
+  <path d="M78.34,48.513l-17.19,12.602v-7.86H45.106V43.85h16.043v-7.941L78.34,48.513z"/>
+  <polygon points="82.835,73.887 87.466,73.887 87.466,22.113 82.835,22.125 "/>
+  <path d="M35.346,35.908v7.941h16.044v9.404H35.346v7.86l-17.19-12.602L35.346,35.908z"/>
+  <polygon points="9.295,73.887 13.926,73.887 13.926,22.113 9.295,22.125 "/>
+</g>
+</svg>

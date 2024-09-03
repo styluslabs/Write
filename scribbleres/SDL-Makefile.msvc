@@ -1,0 +1,168 @@
+# Makefile fragment for MSVC x86 (32-bit) - v. 2018-11-28
+# - for use with gnu make built for Windows: http://www.equation.com/servlet/equation.cmd?fa=make
+
+TARGET = SDL2.lib
+
+SOURCES = \
+  src/*.c \
+  src/atomic/*.c \
+  src/audio/*.c \
+  src/audio/directsound/*.c \
+  src/audio/disk/*.c \
+  src/audio/dummy/*.c \
+  src/audio/wasapi/*.c \
+  src/audio/winmm/*.c \
+  src/core/windows/*.c \
+  src/cpuinfo/*.c \
+  src/events/*.c \
+  src/file/*.c \
+  src/filesystem/windows/*.c \
+  src/hidapi/windows/*.c \
+  src/haptic/*.c \
+  src/haptic/windows/*.c \
+  src/joystick/*.c \
+  src/joystick/hidapi/*.c \
+  src/joystick/windows/*.c \
+  src/libm/*.c \
+  src/loadso/windows/*.c \
+  src/power/*.c \
+  src/power/windows/*.c \
+  src/render/*.c \
+  src/render/direct3d11/*.c \
+  src/render/direct3d/*.c \
+  src/render/opengles2/*.c \
+  src/render/opengl/*.c \
+  src/render/software/*.c \
+  src/sensor/*.c \
+  src/sensor/dummy/*.c \
+  src/stdlib/*.c \
+  src/thread/*.c \
+  src/thread/generic/SDL_syscond.c \
+  src/thread/windows/*.c \
+  src/timer/*.c \
+  src/timer/windows/*.c \
+  src/video/*.c \
+  src/video/dummy/*.c \
+  src/video/windows/*.c \
+  src/video/yuv2rgb/*.c \
+  src/main/windows/SDL_windows_main.c
+
+INC = ./include
+INCSYS =
+DEFS = HAVE_LIBC
+
+RESOURCES = src/main/windows/version.rc
+
+# should we also define _UNICODE to use for C stdlib fns?
+# common C and C++ flags
+# /MD to use dynamic C runtime (msvcrt DLL); /MT to statically link C runtime (libcmt)
+# if link complains about defaultlib ('LIBCMT' or 'MSVCRT'), try /verbose switch to which .lib is requesting
+#  LIBCMT vs. MSVCRT
+CFLAGS = /MT
+# C++
+CXX = cl
+CXXFLAGS = /std:c++14 /GR-
+# C
+CC = cl
+CCFLAGS =
+# linkerc
+LD = link /lib
+LDFLAGS = /SUBSYSTEM:WINDOWS
+# resource compiler
+RC = rc
+RCFLAGS =
+
+# note hardcoded basepath for project files! ... fix this!
+MAKEDEPEND = c:\Python27amd64\python.exe -c "import fileinput, os; \
+  print ' \\\n '.join([s2 for s2 in \
+    [os.path.abspath(s[21:].strip()) for s in fileinput.input() if s.startswith('Note: including file:')] \
+  if s2.lower().startswith('c:\\temp\\styluslabs')])"
+
+DEBUG ?= 0
+ifneq ($(DEBUG), 0)
+  CFLAGS += /Od /Zi /D_DEBUG
+  LDFLAGS += /DEBUG
+  BUILDDIR ?= Debug
+else
+  # /GL + /LTCG for dist?
+  CFLAGS += /O2 /Zi /DNDEBUG
+  #/DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF
+  #LDFLAGS += /LTCG
+  BUILDDIR ?= Release
+endif
+
+# disable optimizations which make profiling difficult, esp. inlining
+PROFILE ?= 0
+ifneq ($(PROFILE), 0)
+  CFLAGS += -fno-inline -g
+endif
+
+ifneq ($(TOPDIR),)
+  OBJDIR=$(BUILDDIR)/$(TOPDIR)
+else
+  OBJDIR=$(BUILDDIR)
+endif
+
+# include paths
+INCFLAGS = $(INC:%=/I%)
+INCFLAGS += $(INCSYS:%=/I%)
+
+# defines
+CFLAGS += $(DEFS:%=/D%)
+
+ALLSOURCES=$(wildcard $(SOURCES))
+SRCBASE=$(basename $(ALLSOURCES))
+OBJ=$(SRCBASE:%=$(OBJDIR)/%.obj)
+QUOTEOBJ=$(SRCBASE:%="$(OBJDIR)/%.obj")
+DEPS=$(SRCBASE:%=$(OBJDIR)/%.d)
+RESBASE=$(basename $(RESOURCES))
+RES=$(RESBASE:%=$(OBJDIR)/%.res)
+TGT=$(BUILDDIR)/$(TARGET)
+# compiler will not create directories, so depend on existence of all directories in output folder
+# sort removes duplicates (which cause make error)
+BUILDDIRS=$(sort $(dir $(OBJ)))
+# on Windows, existence check doesn't work for directories (?), so use an empty file in each directory instead
+BUILDDIRSMADE=$(BUILDDIRS:%=%.made)
+
+.PHONY: all clean distclean
+
+all: $(TGT)
+
+# force C/C++
+$(OBJDIR)/$(FORCECPP): CFLAGS += /TP
+
+# echo | set /p x="..." is trick to suppress newline
+$(OBJDIR)/%.obj: %.cpp
+	echo|set /p x="$@: " > $(basename $@).d
+	$(CXX) /nologo /c $< /Zs /showIncludes $(CFLAGS) $(CXXFLAGS) $(INCFLAGS) | $(MAKEDEPEND) >> $(basename $@).d
+	$(CXX) /nologo /c $< /Fo:$@ $(CFLAGS) $(CXXFLAGS) $(INCFLAGS)
+
+$(OBJDIR)/%.obj: %.c
+	echo|set /p x="$@: " > $(basename $@).d
+	$(CC) /nologo /c $< /Zs /showIncludes $(CFLAGS) $(CCFLAGS) $(INCFLAGS) | $(MAKEDEPEND) >> $(basename $@).d
+	$(CC) /nologo /c $< /Fo$@ $(CFLAGS) $(CCFLAGS) $(INCFLAGS)
+
+$(OBJDIR)/%.res: %.rc
+	$(RC) $(RCFLAGS) /fo $@ $<
+
+$(TGT): $(OBJ) $(RES)
+	$(LD) /nologo /out:$@ $^ $(LDFLAGS) $(LIBS)
+	echo Build complete.
+
+# | (pipe) operator causes make to just check for existence instead of timestamp
+$(OBJ): | $(BUILDDIRSMADE)
+
+# use quoted arg so that mkdir doesn't think '/' path separators are option switches
+# || VER>NUL suppresses errors thrown if folders already exist
+$(BUILDDIRSMADE):
+	mkdir "$(dir $@)" || VER>NUL
+	type nul > $@
+
+clean:
+	cd $(BUILDDIR) && del /S "*.obj" "*.d" "$(TARGET)"
+
+distclean:
+	rd /s /q ./Debug ./Release
+
+# header dependency files
+-include $(DEPS)

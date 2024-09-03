@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.2" baseProfile="tiny" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+	 x="0px" y="0px" width="96px" height="96px" viewBox="0 0 96 96">
+<g class="icon">
+  <path d="M25 51h20v20h-20v-20 m3 3v14h14v-14h-14"/>
+  <path d="M51 25h20v20h-20v-20 m3 3v14h14v-14h-14"/>
+</g>
+<g class="icon">
+  <rect x="25" y="25" width="20" height="20"/>
+  <rect x="51" y="51" width="20" height="20"/>
+</g>
+<g class="icon stroked" fill="none" stroke="currentColor">
+  <path d="m13 13c6.3 10.3 13.2 25.6 35 35s35 35 35 35" stroke-dasharray="4" stroke-width="4"/>
+</g>
+</svg>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="512px" height="853px" viewBox="0 0 512 853">
+<g id="layer1" transform="translate(0, 171)">
+	<path fill="#7F8C8D" d="M465.5,140.2v92.9v92.9v139.4c0,25.2-20.5,46.5-46.5,46.5H92.9c-26,0-46.5-21.3-46.5-46.5V326.9v-93.7v-92.9H465.5z"/>
+	<path fill="#95A5A6" d="M46.5,117.4v92.9v92.9v139.4c0,25.2,20.5,46.5,46.5,46.5h326.1c26,0,46.5-21.3,46.5-46.5V303.3v-92.9v-92.9H46.5z"/>
+	<rect x="326.1" y="396.2" fill="#7F8C8D" width="116.6" height="92.9"/>
+	<path fill="#BDC3C7" d="M92.9,0.8c-26,0-46.5,20.5-46.5,46.5v70.1V141v46.5v45.7v47.3V304v70.1c0,26,20.5,46.5,46.5,46.5h326.1c26,0,46.5-20.5,46.5-46.5V304v-70.9v-92.9v-23.6V46.5c0-26-20.5-46.5-46.5-46.5H92.9V0.8z"/>
+	<rect x="348.9" y="442.7" fill="#F1C40F" width="70.1" height="23.6"/>
+</g>
+</svg>

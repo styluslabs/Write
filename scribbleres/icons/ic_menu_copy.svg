@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.2" baseProfile="tiny" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+	 x="0px" y="0px" width="96px" height="96px" viewBox="0 0 96 96" xml:space="preserve">
+<g class="icon">
+  <path style="fill-rule:evenodd;" d="M60.005,17.99h-36.01v48.02h3v6h-3h-6V11.99h48.01v6v3h-6V17.99z
+     M64.675,67.01h-22.68v-2h22.68V67.01z M55.335,61h-13.34v-2h13.34V61z M59.335,55h-17.34v-2h17.34V55z M66.005,49h-24.01v-2h24.01
+    V49z M55.335,43h-13.34v-2h13.34V43z M72.005,30h-36.01v48.01h36.01V30z M29.995,23.99h48.01v60.02h-48.01V23.99z"/>
+</g>
+</svg>

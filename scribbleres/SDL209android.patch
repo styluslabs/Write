@@ -1,0 +1,36 @@
+diff -r 8feb5da6f2fb src/dynapi/SDL_dynapi.h
+--- a/src/dynapi/SDL_dynapi.h	Tue Oct 30 20:11:02 2018 +0300
++++ b/src/dynapi/SDL_dynapi.h	Sat Jun 13 21:12:43 2020 -0700
+@@ -59,7 +59,7 @@
+ 
+ /* everyone else. This is where we turn on the API if nothing forced it off. */
+ #ifndef SDL_DYNAMIC_API
+-#define SDL_DYNAMIC_API 1
++#define SDL_DYNAMIC_API 0
+ #endif
+ 
+ #endif
+diff -r 8feb5da6f2fb src/video/SDL_video.c
+--- a/src/video/SDL_video.c	Tue Oct 30 20:11:02 2018 +0300
++++ b/src/video/SDL_video.c	Sat Jun 13 21:12:43 2020 -0700
+@@ -1436,7 +1436,7 @@
+     }
+ 
+     /* Some platforms have OpenGL enabled by default */
+-#if (SDL_VIDEO_OPENGL && __MACOSX__) || __IPHONEOS__ || __ANDROID__ || __NACL__
++#if 0  /*(SDL_VIDEO_OPENGL && __MACOSX__) || __IPHONEOS__ || __ANDROID__ || __NACL__*/
+     if (!_this->is_dummy && !(flags & SDL_WINDOW_VULKAN)) {
+         flags |= SDL_WINDOW_OPENGL;
+     }
+diff -r 8feb5da6f2fb src/video/android/SDL_androidwindow.c
+--- a/src/video/android/SDL_androidwindow.c	Tue Oct 30 20:11:02 2018 +0300
++++ b/src/video/android/SDL_androidwindow.c	Sat Jun 13 21:12:43 2020 -0700
+@@ -77,7 +77,7 @@
+ 
+     /* Do not create EGLSurface for Vulkan window since it will then make the window
+        incompatible with vkCreateAndroidSurfaceKHR */
+-    if ((window->flags & SDL_WINDOW_VULKAN) == 0) {
++    if ((window->flags & SDL_WINDOW_OPENGL)) {  /*VULKAN) == 0) {*/
+         data->egl_surface = SDL_EGL_CreateSurface(_this, (NativeWindowType) data->native_window);
+ 
+         if (data->egl_surface == EGL_NO_SURFACE) {

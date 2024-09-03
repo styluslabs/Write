@@ -1,0 +1,27 @@
+    End-User License Agreement for Stylus Labs Write
+
+    This End-User License Agreement ("EULA") is a legal agreement between you, either an individual or a single entity, ("LICENSEE") and Stylus Labs ("LICENSOR") for the software product identified above, which includes computer software and may include associated media and "online" or electronic documentation ("SOFTWARE PRODUCT").
+
+    By installing, copying, or otherwise using the SOFTWARE PRODUCT, the LICENSEE agrees to be bound by the terms of this EULA.
+
+    SOFTWARE PRODUCT LICENSE
+
+    1. GRANT OF LICENSE. This EULA grants the LICENSEE the following rights: Installation and Use. LICENSEE may install and use an unlimited number of copies of the SOFTWARE PRODUCT.  The LICENSOR reserves all rights in the SOFTWARE PRODUCT not expressly granted to LICENSEE herein.
+
+    a) Reproduction and Distribution.
+    The LICENSEE may not reproduce or distribute the SOFTWARE PRODUCT.
+
+    b) Termination.
+    Without prejudice to any other rights, the LICENSOR may terminate this EULA if the LICENSEE fails to comply with the terms and conditions of this EULA. In such event, the LICENSEE must destroy all copies of the SOFTWARE PRODUCT and all of its component parts.
+
+    2. LIMITATION ON REVERSE ENGINEERING.
+    The LICENSEE may not reverse engineer, decompile, or disassemble the SOFTWARE PRODUCT, except and only to the extent that such activity is expressly permitted by applicable law notwithstanding this limitation.
+
+    3. COPYRIGHT.
+    All title and copyrights in and to the SOFTWARE PRODUCT, the accompanying documentation, and any copies of the SOFTWARE PRODUCT are owned by the LICENSOR. The SOFTWARE PRODUCT is protected by copyright laws and international treaty provisions.
+
+    4. NO WARRANTIES.
+    The LICENSOR expressly disclaims any warranty for the SOFTWARE PRODUCT. The SOFTWARE PRODUCT and any related documentation is provided "as is" without warranty of any kind, either express or implied, including, without limitation, the implied warranties or merchantability, fitness for a particular purpose, or noninfringement. The entire risk arising out of use or performance of the SOFTWARE PRODUCT remains with the LICENSEE.
+
+    5. NO LIABILITY FOR DAMAGES.
+    In no event shall the LICENSOR be liable for any special, consequential, incidental or indirect damages whatsoever (including, without limitation, damages for loss of business profits, business interruption, loss of business information, or any other pecuniary loss) arising out of the use of or inability to use this product, even if the LICENSOR is aware of the possibility of such damages and known defects.

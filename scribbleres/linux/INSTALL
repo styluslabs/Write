@@ -1,0 +1,12 @@
+Make sure your graphics driver is up-to-date, then run ./setup.sh
+This script will install the SDL2 library required by Write and
+create a desktop entry.
+
+If Write's interface appears too small (or too large), enable
+advanced preferences and enter the actual DPI (= horizontal
+pixels/horizontal size in inches) for "Screen DPI" in the
+Advanced section, then restart Write.  You may also wish to
+adjust the default page size in Page Setup.
+
+To remove the desktop entry created by Write, run:
+    rm ~/.local/share/applications/Write.desktop

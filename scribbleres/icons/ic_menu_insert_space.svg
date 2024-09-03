@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg version="1.2" baseProfile="tiny" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+	 x="0px" y="0px" width="96px" height="96px" viewBox="0 0 96 96" xml:space="preserve">
+<g class="icon">
+  <path d="M14.381,75.493v6.014h67.238l-0.016-6.014H14.381z M47.716,69.654L31.349,47.329h10.209V26.493h12.213
+    v20.836h10.313L47.716,69.654z"/>
+  <polygon points="14.381,12.993 14.381,19.007 81.619,19.007 81.604,12.993 "/>
+</g>
+</svg>

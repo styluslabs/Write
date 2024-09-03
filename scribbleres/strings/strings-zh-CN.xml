@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- iOS UI -->
+  <string name="enter_doc_name">文档名称</string>
+  <string name="doc_conflict">文件冲突</string>
+  <string name="ios_doc_save_as">输入新的文档名称，然后选择保存位置</string>
+  <string name="then_choose_dest">然后选择目标</string>
+  <string name="ios_conflict_prompt">请为%@由%@修改的%@的版本选择一个新位置</string>
+  <string name="docs_createdoc">新建文档</string>
+
+  <!--  newer translations  -->
+  <string name="menu_invert_colors">反转颜色</string>
+  <string name="menu_select_pages">选择页</string>
+  <string name="menu_split_tb">拆分 上/下</string>
+  <string name="menu_split_bt">拆分 下/上</string>
+  <string name="menu_split_lr">拆分 左/右</string>
+  <string name="menu_split_rl">拆分 右/左</string>
+  <string name="clippings">剪贴画</string>
+  <string name="color">颜色</string>
+  <string name="documents">文件</string>
+  <string name="default">默认值</string>
+  <string name="discard">放弃更改</string>
+  <string name="menu_prevview">上一页</string>
+  <string name="menu_nextview">下一页</string>
+  <string name="menu_fullscreen">全屏</string>
+  <string name="menu_splitview">拆分</string>
+  <string name="menu_movepage">移动页面...</string>
+  <string name="menu_saveas">另存为...</string>
+  <string name="menu_insertdoc">插入文件...</string>
+  <string name="menu_exportpdf">导出为PDF...</string>
+  <string name="menu_createwhiteboad">创建书写板...</string>
+  <string name="menu_openwhiteboard">打开书写板...</string>
+  <string name="menu_whiteboardinfo">书写板信息...</string>
+  <string name="menu_syncedits">同步编辑</string>
+  <string name="menu_syncview">同步视图</string>
+  <string name="menu_viewmaster">控制视图</string>
+  <string name="menu_sendimg">发送当前页图片</string>
+  <string name="menu_sendpdf">发送 PDF</string>
+  <string name="menu_addbkmk">添加书签</string>
+  <string name="menu_whiteboard">书写板</string>
+  <string name="menu_view">视图</string>
+  <string name="tp_insertcurr">插入当前页</string>
+  <string name="tp_highlight">突出</string>
+  <string name="tp_snaptogrid">网格线对齐</string>
+  <string name="tp_drawlines">画线</string>
+  <string name="tp_ephemeral">临时</string>
+  <string name="tp_useaspen">用作书写笔</string>
+  <string name="link_enterurl">输入 URL:</string>
+  <string name="link_choosebkmk">选择书签:</string>
+  <string name="save_prompt">文件尚未保存。\n下一步</string>
+  <string name="save_unsaveddoc">未保存文件</string>
+  <string name="docs_opencopy">打开拷贝</string>
+  <string name="docs_covertdocs">转换文档</string>
+  <string name="docs_savehere">保存在当前位置</string>
+  <string name="docs_savedocument">保存文件</string>
+  <string name="docs_openwhiteboard">打开书写板</string>
+  <string name="docs_docexists">该文件名已存在</string>
+  <string name="docs_papertype">纸张类型</string>
+  <string name="docs_newfolder">新文件夹/</string>
+  <string name="docs_createfolder">创建新文件夹</string>
+  <string name="docs_folderexists">该文件夹已存在</string>
+  <string name="docs_undodel">撤销删除 "%s"</string>
+  <string name="swb_get_started">访问 %s 以开始</string>
+  <string name="swb_title">标题</string>
+  <string name="swb_id">ID</string>
+  <string name="swb_lecture_mode">教学模式</string>
+  <string name="swb_create_whiteboard">创建书写板</string>
+  <string name="ps_screen">屏幕</string>
+  <string name="ps_screenlandscape">横屏</string>
+  <string name="ps_letter">信函</string>
+  <string name="ps_letterlandscape">信函横向</string>
+  <string name="ps_a4">A4</string>
+  <string name="ps_a4landscape">A4 横向</string>
+  <string name="ps_clipwarning">此页面大小将剪辑内容</string>
+  <string name="pref_wontsave">可能不会保存首选项，因为某些首选项是从命令行设置的。</string>
+  <string name="pref_inputsection">输入</string>
+  <string name="pref_inputignore">忽略</string>
+  <string name="pref_mousemode">鼠标模式</string>
+  <string name="pref_singletouchmode">单点触控</string>
+  <string name="pref_draw">画</string>
+  <string name="pref_panandzoom">平移和缩放</string>
+  <string name="pref_multitouchmode">多点触控</string>
+  <string name="pref_panfromedge">从边缘实现页面移动</string>
+  <string name="pref_ignorefirstpoint">忽略第一笔</string>
+  <string name="pref_pressurescale">笔压调整</string>
+  <string name="pref_smoothing">使平滑</string>
+  <string name="pref_simplification">简化</string>
+  <string name="pref_uisection">用户界面</string>
+  <string name="pref_changesrestart">更改可能在重启程序之后才能生效</string>
+  <string name="pref_returnprevtool">返回前一个工具</string>
+  <string name="pref_popupseltools">弹出式工具栏</string>
+  <string name="pref_hidescroller">隐藏滚动条</string>
+  <string name="pref_savepen_manual">使用手册</string>
+  <string name="pref_savepen_recent">书写笔近期设置值</string>
+  <string name="pref_savepen_perdoc">最近文档</string>
+  <string name="pref_savepen">保存手写笔</string>
+  <string name="pref_cursor_hide">隐藏</string>
+  <string name="pref_cursor_system">系统</string>
+  <string name="pref_cursor_custom">自定义</string>
+  <string name="pref_cursor">光标模式</string>
+  <string name="pref_doclist_sort">排序</string>
+  <string name="pref_firstpagethumb">将第一页用作缩略图</string>
+  <string name="pref_promptonsave">保存文件前提示</string>
+  <string name="pref_reopenlastdoc">打开上一个文件</string>
+  <string name="pref_generalsection">通用</string>
+  <string name="pref_growwithstrokes">点击增加页面</string>
+  <string name="pref_freeeraseimage">删除照片（不规则橡皮擦）</string>
+  <string name="pref_ruledsection">直纹工具</string>
+  <string name="pref_linearcolorinterp">线性颜色插值</string>
+  <string name="pref_reduceimgsize">缩小图像</string>
+  <string name="pref_filetype">文件类型</string>
+  <string name="pref_forcedpi">必要图片DPI</string>
+  <string name="pref_swbserver">远程对话服务器</string>
+  <string name="pref_checkforupdates">检查更新（周）</string>
+  <string name="pref_showadvprefs">显示高级首选项</string>
+  <string name="pref_cleardocconfig">清除文件设置</string>
+  <string name="pref_checkforupdate">检查更新</string>
+  <string name="pref_doclisticonsize">文件图标大小</string>
+  <string name="pref_palmreject">手掌防误触</string>
+  <string name="pref_gpurender">使用GPU</string>
+
+  <string name="conv_convert">转换</string>
+  <string name="conv_convertprompt">此文件夹中的文档将在文件夹“％s”中转换为％s格式</string>
+  <string name="conv_converting2">转换为</string>
+  <string name="conv_convertingprog">转换文件: %d%%</string>
+  <string name="conv_convertingname">新文件名 %s</string>
+  <string name="conv_results">转换后文件</string>
+  <!-- new translations -->
+  <string name="bookmarks">书签</string>
+  <string name="margin_content">边际的内容</string>
+  <string name="untitled">无标题</string>
+  <string name="menu_pathselect">笔触选择</string>
+  <string name="menu_delete">删除</string>
+  <string name="menu_invert">反向</string>
+  <string name="menu_ungroup">取消分组</string>
+  <string name="menu_createlink">建立连结</string>
+  <string name="menu_createlink2">建立连结...</string>
+  <string name="menu_insertimage">插入图片...</string>
+  <string name="menu_preferences">首选项...</string>
+  <string name="menu_pagesetup2">页面设置...</string>
+  <string name="menu_custompen">定制笔...</string>
+  <string name="menu_pensetup">定制笔...</string>
+  <string name="menu_discard">放弃更改...</string>
+  <string name="tp_pressure">压感</string>
+  <string name="tp_pentip">笔尖</string>
+  <string name="tp_penflat">平面</string>
+  <string name="tp_penround">圆形</string>
+  <string name="tp_penchisel">凿</string>
+  <string name="tp_varywidth">改变宽度</string>
+  <string name="tp_speed">速度</string>
+  <string name="tp_direction">方向</string>
+  <string name="tp_dash">虚线</string>
+  <string name="tp_gap">差距</string>
+
+  <!-- page setup dialog -->
+  <string name="ps_page_size">页面尺寸</string>
+  <string name="ps_width">宽度</string>
+  <string name="ps_height">高度</string>
+  <string name="ps_ruling">直纹</string>
+  <string name="ps_xruling">X 直纹</string>
+  <string name="ps_yruling">Y 直纹</string>
+  <string name="ps_leftmargin">左边际</string>
+
+  <string name="ps_applytoall">应用到所有页面</string>
+  <string name="ps_applyselected">应用到选页面</string>
+  <string name="ps_docdefault">文档默认设置</string>
+  <string name="ps_globaldefault">全局默认设置</string>
+  <string name="ps_pagecolor">页面颜色</string>
+  <string name="ps_rulecolor">直纹颜色</string>
+
+  <string name="page_size_prompt">页面尺寸</string>
+  <string name="page_sizes_current"        >当前</string>
+  <string name="page_sizes_screenportrait" >设备屏幕（纵向）</string>
+  <string name="page_sizes_screenlandscape">设备屏幕（横向）</string>
+
+  <string name="page_ruling_prompt">直纹</string>
+  <string name="page_rulings_current"    >当前</string>
+  <string name="page_rulings_plain"      >平面</string>
+  <string name="page_rulings_wideruled"  >宽直纹</string>
+  <string name="page_rulings_mediumruled">中等直纹</string>
+  <string name="page_rulings_narrowruled">窄直纹</string>
+  <string name="page_rulings_coarsegrid" >粗网格</string>
+  <string name="page_rulings_mediumgrid" >中网格</string>
+  <string name="page_rulings_finegrid"   >密网格</string>
+
+  <string name="tp_savepen">另存为笔：</string>
+  <string name="tp_pressure_none">无</string>
+  <string name="tp_pressure_low" >0.25（低）</string>
+  <string name="tp_pressure_med" >0.5（中）</string>
+  <string name="tp_pressure_high">1（高）</string>
+
+  <string name="pref_coldet_title">列检测模式</string>
+  <string name="pref_coldet_s">使用垂直线作为回流限制</string>
+  <string name="pref_col_detect_none">无</string>
+  <string name="pref_col_detect_norm">正常</string>
+  <string name="pref_col_detect_full">整页</string>
+
+  <string name="pref_view_title">视图模式</string>
+  <string name="pref_view_s">单页或连续滚动</string>
+  <string name="pref_view_single">单页</string>
+  <string name="pref_view_vert"  >连续垂直</string>
+  <string name="pref_view_horz"  >连续水平</string>
+
+  <string name="pref_vol_btn_title">音量按钮动作</string>
+  <string name="pref_vol_btn_s">如果有硬件音量按钮</string>
+  <string name="pref_vol_btn_name"    >无（音量）</string>
+  <string name="pref_vol_btn_undo"    >撤销/重做</string>
+  <string name="pref_vol_btn_zoom"    >缩小/放大</string>
+  <string name="pref_vol_btn_nextprev">下一页/前一页</string>
+  <string name="pref_vol_btn_prevnext">前一页/下一页</string>
+  <string name="pref_vol_btn_penbtn"  >模拟笔按钮</string>
+
+  <string name="pref_pen_button_title">笔按钮工具</string>
+  <string name="pref_pen_button_s">通过笔按钮（如果存在）激活工具</string>
+  <string name="pref_pen_btn_none"   >无</string>
+  <string name="pref_pen_btn_pan"    >平移</string>
+  <string name="pref_pen_btn_erase"  >擦除</string>
+  <string name="pref_pen_btn_select" >选择</string>
+  <string name="pref_pen_btn_rectsel">矩形选择</string>
+  <string name="pref_pen_btn_lasso"  >套索选择</string>
+  <string name="pref_pen_btn_inssp"  >插入空格</string>
+
+  <string name="pref_thumbnail_title">缩略图尺寸</string>
+  <string name="pref_thumb_small">小</string>
+  <string name="pref_thumb_med"  >中</string>
+  <string name="pref_thumb_large">大</string>
+
+  <string name="pref_docsort_title">文档排列次序</string>
+  <string name="pref_docsort_created" >最后一个创建的项目</string>
+  <string name="pref_docsort_modified">最后一个修改的项目</string>
+  <string name="pref_docsort_bytitle" >标题</string>
+
+  <string name="pref_ui_theme">着色方案</string>
+  <string name="pref_ui_theme_dark">深色</string>
+  <string name="pref_ui_theme_light">浅色</string>
+
+  <string name="pref_minwordsep">最小回流断字尺寸</string>
+  <string name="pref_minwordsep_s">作为 Y 直纹的分数</string>
+
+  <string name="pref_resetprefs">重置首选项</string>
+  <string name="pref_resetprefs_s">将所有首选项和定制笔恢复为默认设置</string>
+
+
+  <!-- old translations -->
+  <string name="app_name">Write</string> <!-- 书写 -->
+  <string name="no_notes">无文档</string>
+  <string name="menu_viewasgrid">网格视图</string>
+  <string name="menu_viewaslist">列表视图</string>
+  <string name="menu_insertnote">建立文件</string>  <!--新建文档-->
+  <string name="menu_addfile">在列表中添加文件</string>
+  <string name="menu_prefs">首选项</string>
+  <string name="menu_deletedoc">删除文档</string>
+  <string name="menu_rename">重命名</string>
+  <string name="menu_savefile">保存文件</string>
+  <string name="menu_openfile">打开文件</string>
+  <string name="menu_help">帮助</string>
+  <string name="menu_undo">撤销</string>
+  <string name="menu_redo">重做</string>
+  <string name="confirm">确定</string>
+  <string name="cancel">取消</string>
+  <string name="yes">是</string>
+  <string name="no">否</string>
+  <string name="error">错误</string>
+  <string name="edit_title">编辑文档标题</string>
+  <string name="set_link_target">设置链接位置</string>
+
+  <string name="menu_newfolder">新建文件夹</string>
+  <string name="menu_deletefolder">删除文件夹</string>
+  <string name="menu_movenote">移动至...</string>
+  <string name="msg_movenote">选择文件夹</string>
+  <string name="edit_tag">重命名文件夹</string>
+  <string name="unfiled">未分类</string>
+  <string name="newcolor">新建颜色</string>
+  <string name="select">选择</string>
+  <string name="create">创建</string>
+
+    <!-- more strings! -->
+  <string name="menu_bookmarks">显示书签</string>
+  <string name="menu_prevpage">前一页</string>
+  <string name="menu_nextpage">下一页</string>
+  <string name="menu_selection">选择</string>
+  <string name="menu_cut">剪切</string>
+  <string name="menu_copy">复制</string>
+  <string name="menu_paste">粘贴</string>
+  <string name="menu_duplicate">副本</string>
+  <string name="menu_deletesel">删除选中内容</string>
+  <string name="menu_selectall">全选</string>
+  <string name="menu_selsimilar">选择类似对象</string>
+  <string name="menu_invsel">反选</string>
+  <string name="menu_document">文档</string>
+  <string name="menu_senddoc">发送文档</string>
+  <string name="menu_sendpage">发送当前页</string>
+  <string name="menu_exportdoc">导出文档</string>
+  <string name="menu_exportaspdf">导出为 PDF 文件</string>
+  <string name="menu_pagesetup">页面设置</string>
+  <string name="menu_page">页面</string>
+  <string name="menu_newpageafter">在后面页新建页</string>
+  <string name="menu_newpagebefore">在前面页新建页</string>
+  <string name="menu_deletepage">删除页</string>
+  <string name="menu_expanddown">向下扩展</string>
+  <string name="menu_expandright">向右扩展</string>
+  <string name="menu_zoom">缩放</string>
+  <string name="menu_zoomin">放大</string>
+  <string name="menu_zoomout">缩小</string>
+  <string name="menu_zoompage">缩放页面</string>
+  <string name="menu_zoomwidth">缩放宽度</string>
+  <string name="menu_resetzoom">重置缩放</string>
+  <string name="menu_webview">显示网页视图</string>
+  <string name="menu_exportdocs">备份文档</string>
+  <string name="menu_addbookmark">书签</string>
+  <string name="menu_strokeeraser">线条橡皮擦</string>
+  <string name="menu_rulederaser">直纹橡皮擦</string>
+  <string name="menu_freeeraser">自由橡皮擦</string>
+  <string name="menu_rectsel">矩形选择</string>
+  <string name="menu_ruledsel">直纹选择</string>
+  <string name="menu_lassosel">套索选择</string>
+  <string name="menu_insspace">插入空格</string>
+  <string name="menu_ruledinsspace">直纹插入空格</string>
+  <string name="menu_insert">插入图片</string>
+  <string name="menu_captureimg">从相机中</string>
+  <string name="menu_selectimg">从文件</string>
+
+    <!-- dialogs -->
+  <string name="noimage_msg">打开图片时出错</string>
+  <string name="resetprefs_title">确认重置首选项</string>
+  <string name="resetprefs_prompt">确定要重置所有首选项？</string>
+  <string name="resetprefs_msg">首选项已重置</string>
+  <string name="saveerror_msg">保存到   时出错 </string>
+  <string name="openerror_msg">打开文件时出错： </string>
+
+    <!-- pref catagories -->
+  <string name="prefs_input">输入和 UI</string>
+  <string name="prefs_drawing">绘图</string>
+  <string name="prefs_doclist">文档列表</string>
+  <string name="prefs_advanced">高级</string>
+
+    <!-- input prefs -->
+  <string name="prefcat_penandtouch">笔和触摸</string>
+  <string name="prefcat_interface">接口</string>
+  <string name="pref_forcepen">强制笔</string>
+  <string name="pref_forcepen_s">超控自动笔检测</string>
+  <string name="pref_touchwindow">触摸抑制窗口</string>
+  <string name="pref_touchwindow_s">放开主动笔之后接受触动输入的延迟时间，单位毫秒。设置为零时即可禁用。</string>
+  <string name="pref_panedge">从边缘平移</string>
+  <string name="pref_panedge_s">从屏幕边缘滑动进行平移</string>
+  <string name="pref_showpantool">显示平移工具</string>
+  <string name="pref_showpantool_s">所有触摸输入禁用时允许平移</string>
+  <string name="pref_returntopen">使用其他工具之后,恢复为笔。</string>
+  <string name="pref_returntopen_s">将其他工具选择两次以锁定</string>
+  <string name="pref_undosteps">撤销拨号步骤</string>
+  <string name="pref_undosteps_s">每转撤销拨号的撤销/重做动作数量</string>
+  <string name="pref_lefthanded">左手模式</string>
+  <string name="pref_lefthanded_s">左手用户的 UI 布局。在一些设备中，网页视图位于右侧时，视频不可用。</string>
+  <string name="pref_screenon">保持屏幕打开</string>
+  <string name="pref_screenon_s">文档打开时</string>
+  <string name="pref_timerange">显示时间范围</string>
+  <string name="pref_timerange_s">适用于当前页面</string>
+
+    <!-- drawing prefs -->
+  <string name="prefcat_growingpage">扩展页面</string>
+  <string name="prefcat_performance">性能</string>
+  <string name="pref_reflow">插入空格回流</string>
+  <string name="pref_reflow_s">超过页面右边缘的回流线条</string>
+  <string name="pref_blankyruling">非直纹页面的有效 Y 直纹</string>
+  <string name="pref_blankyruling_s">直纹模式工具用于非直纹页面时</string>
+  <string name="pref_limittosel">限制插入空格并擦除选择</string>
+  <string name="pref_limittosel_s">如果主动选择可见</string>
+  <string name="pref_insspaceerase">删除空格时擦除</string>
+  <string name="pref_insspaceerase_s">擦除直纹插入空格转换的线条</string>
+  <string name="pref_growdown">自动扩展下一页</string>
+  <string name="pref_growdown_s">在底部附近绘制时增加页面高度</string>
+  <string name="pref_growright">自动扩展右侧页面</string>
+  <string name="pref_growright_s">在右边缘附近绘制时增加页面宽度</string>
+  <string name="pref_growwithpen">自动扩展页面线条</string>
+  <string name="pref_growwithpen_s">如果不可操作，使用插入空格或移动选择，扩展页面</string>
+  <string name="pref_insemptyspace">插入空白空间</string>
+  <string name="pref_insemptyspace_s">可通过插入空白空间扩展页面</string>
+  <string name="pref_applypentosel">用笔改变选择</string>
+
+    <!-- About dialog -->
+  <string name="about_title">关于</string>
+  <string name="about_summary">关于书写</string>
+  <string name="about_text">创建人：Stylus Labs\n 网址：http://www.styluslabs.com\n 电子邮件：support@styluslabs.com\n\nWrite 是手写文字处理器。\n 也适用于 Windows 平板计算机。</string>
+
+</resources>
