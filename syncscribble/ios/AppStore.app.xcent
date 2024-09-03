@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>application-identifier</key>
+	<string>8U8646Y4MM.com.styluslabs.write3</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>8U8646Y4MM</string>
+	<key>get-task-allow</key>
+	<false/>
+	<key>beta-reports-active</key>
+	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>8U8646Y4MM.com.styluslabs.write3</string>
+	</array>
+</dict>
+</plist>

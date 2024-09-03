@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Product Id="*" UpgradeCode="44B96A92-2120-4254-9F21-5813284F53E9"
+    Name="Write" Version="$(var.ProductVersion)" Manufacturer="Stylus Labs" Language="1033">
+  <Package InstallerVersion="200" Compressed="yes" Comments="Windows Installer Package"/>
+  <Media Id="1" Cabinet="product.cab" EmbedCab="yes"/>
+  <MajorUpgrade AllowDowngrades="no" AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of Write is already installed." />
+
+  <Directory Id="TARGETDIR" Name="SourceDir">
+    <Directory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLPRODUCTDIR" Name="Stylus Labs">
+        <Component Id="Write_exe" Guid="*">
+         <File Id="Write_exe_File" Source="Write.exe"/>
+         <RemoveFile Id='RmConfigFile_File' On='uninstall' Name='write.xml'/>
+        </Component>
+        <Component Id="Intro_svg" Guid="*">
+         <File Id="Intro_svg_File" Source="Intro.svg"/>
+        </Component>
+        <Component Id="Roboto_Regular_ttf" Guid="*">
+         <File Id="Roboto_Regular_ttf_File" Source="Roboto-Regular.ttf"/>
+        </Component>
+        <Component Id="DroidSansFallback_ttf" Guid="*">
+         <File Id="DroidSansFallback_ttf_File" Source="DroidSansFallback.ttf"/>
+        </Component>
+      </Directory>
+    </Directory>
+
+    <Directory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuSubfolder" Name="Stylus Labs">
+        <Component Id="ApplicationShortcuts" Guid="*">
+         <Shortcut Id="ApplicationShortcut1" Name="Write" Description="Stylus Labs Write"
+              Target="[INSTALLPRODUCTDIR]Write.exe" WorkingDirectory="INSTALLPRODUCTDIR"/>
+         <RegistryValue Root="HKCU" Key="Software\Stylus Labs\Write"
+              Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+         <RemoveFolder Id="ProgramMenuSubfolder" On="uninstall"/>
+        </Component>
+      </Directory>
+    </Directory>
+  </Directory>
+
+  <!-- remove %APPDATA%\Stylus Labs on uninstall - this is essential to allow user to reset with reinstall -->
+  <InstallExecuteSequence>
+    <Custom Action="UninstallService" After="InstallInitialize">(NOT UPGRADINGPRODUCTCODE) AND (REMOVE="ALL")</Custom>
+  </InstallExecuteSequence>
+  <CustomAction Id="UninstallService" Return="ignore" Impersonate="yes" Execute="deferred" Directory="INSTALLPRODUCTDIR" ExeCommand="cmd /C rmdir &quot;%APPDATA%\Stylus Labs&quot; /s /q"/>
+
+  <!-- skip EULA page -->
+  <Property Id="WIXUI_INSTALLDIR" Value="INSTALLPRODUCTDIR" />
+  <UI>
+    <UIRef Id="WixUI_InstallDir" />
+    <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2">1</Publish>
+    <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2">1</Publish>
+  </UI>
+
+  <Feature Id="DefaultFeature" Level="1">
+    <ComponentRef Id="Write_exe"/>
+    <ComponentRef Id="Intro_svg"/>
+    <ComponentRef Id="Roboto_Regular_ttf"/>
+    <ComponentRef Id="DroidSansFallback_ttf"/>
+    <ComponentRef Id="ApplicationShortcuts"/>
+  </Feature>
+</Product>
+</Wix>

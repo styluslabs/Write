@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if [ "$1" = "-version" ]; then
+  exec /home/mwhite/android-ndk-r18b/prebuilt/linux-x86_64/bin/gdb -version
+else
+  # Qt Creator sends SIGINT to debugger process by PID in order to pause inferior (necessary, e.g., for
+  #  setting breakpoints) ... but SIGINT does not get propagated to children, so we have to `exec` gdb so
+  #  that this PID is gdb itself.
+  # NOTE: we also edited NDK's `gdb`, a bash script itself, to use `exec`.
+  # Possible alternative would be python script to run gdb and catch SIGINT to forward to gdb
+  exec /home/mwhite/android-ndk-r18b/prebuilt/linux-x86_64/bin/gdb -x /home/mwhite/graphics/syncscribble/android/debug_start.gdb "$@"
+
+  # now done at beginning of debug_start.sh
+  #/home/mwhite/android-sdk/platform-tools/adb forward --remove tcp:5039
+fi

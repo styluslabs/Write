@@ -1,0 +1,386 @@
+Changelog:
+
+v2.0.9
+
+* rotate selection (use pen button to rotate in 15 degree steps)
+* save and insert clippings (via drag and drop between document and clipping pane)
+* control scaling of stroke width with pen button when scaling selection
+* improve drawing of selection when dragging
+* option to autosave current document for crash recovery
+* internal support for custom page rulings
+* select recent strokes with undo dial when pen button pressed
+* options for drawing cursor to better match current tool
+* duplicate selection command
+* command to insert all pages from another document into current document
+* provide undo button when deleting in document list instead of prompting for confirmation
+* don't return to previous tool after pan from edge
+* update split views immediately when drawing
+* option to popup selection tools
+
+v2.0.0
+
+Unified Android and Desktop versions with touch-friendly, DPI-aware UI
+
+* built-in file manager with document thumbnails and cut/copy/paste functionality for basic document management
+* drag-and-drop customization of toolbars
+* use vector icons that remain sharp at any resolution
+* dark, light, native UI themes available
+* opening and saving documents is now 5 - 10x faster
+* thumbnails now embedded in document files
+* new touch-friendly color selection dialog
+* support JPEG compression for inserted images
+* better support for pen and touch input on UI elements
+* improved support for Wacom graphics tablets
+* Ctrl+Mouse wheel zooming
+* pinch-zoom now snaps to page width/height
+* added ability to move pages within document
+* fullscreen view option (supports immersive mode on Android 4.4+)
+* option for scroll handle to always remain visible
+* optional combined menu for erase, select, and insert space tools
+* show preview in Custom Pen dialog; pen size can be adjusted by dragging left or right on preview
+* simplified Selection Properties/Create Link dialog
+* always detect external modification of document
+* improved handling of corrupted and truncated documents
+* always generate PDFs at 150 DPI
+* fix bug allowing recent documents menu to grow without limit
+* fix bug causing premature loading of pages
+* fix bug saving documents containing apostrophe in name
+
+
+v1.9.7
+
+* stroke smoothing with configurable strength
+* improved behavior of ruled eraser and ruled selection with strokes spanning multiple lines
+* ruled selection background now matches actual selection area
+* strokes reflowed to next line now start at same position as previous first stroke on line
+* bottom right selection resize handle now preserves aspect ratio
+
+
+v1.9.6
+
+Desktop:
+
+* enabling Windows 8 Pointer API no longer suppresses other pen and touch input
+
+
+v1.9.5
+
+Android:
+
+* fixes for Korean strings
+* pen handling fixes
+* downsample when inserting very large images
+* import documents on first run
+
+
+v1.9.4 (Oct 17, 2013)
+
+Android: improve detection of Galaxy Note devices
+
+
+v1.9.3
+
+* fix crash when using undo after dropping bookmark off page
+* fix data loss bug with inserting new pages
+* fix bug determining resize handle size from touch mode
+* make resize handles easier to grab
+* make image downsampling consider prescale
+* fix locale-specific problem saving files in Linux
+
+Android:
+
+* update action bar and menu immediately to reflect changes to UI preferences
+* always choose unused name for new folder in document list
+* indicate submenus with ellipsis
+* use S-pen button when hovering to switch tool
+* fix crash importing docs
+
+
+v1.9.2 (Aug 2, 2013)
+
+* fix problem scrolling bookmark area
+
+Android:
+
+* fix drawing problem on Android 4.3
+* fix crash with folder names containing single quote character
+* reduce CPU usage when in background
+* change default volume button action to next page/prev page
+* more languages
+
+
+v1.9.1 (July 20, 2013)
+
+* fix crash with single page view
+* fix failure to update UI when changing page
+* open blank .html file as new doc
+* improve page number and zoom level displays
+
+Android:
+
+* fix bug saving pens in some locales
+* fix bug when opening documents from multiple activities
+
+
+v1.9 (July 12, 2013)
+
+* insert images into documents
+* free eraser tool to erase portions of strokes and images
+* column detection for reflow
+* display range of timestamps for current page or selection
+* improvements to rendering process
+* remove minimum pointer distance requirement for pinch zoom if single finger pan is enabled
+* improvements to auto expand page behavior when inserting space
+* fix performance issue reading documents with very long strokes
+
+Desktop:
+
+* selection properties dialog for creating hyperlinks and custom bookmarks
+* option for pens to snap to grid
+* use registered email client for sending mail
+* additional shortcut keys
+* option to display popup tool menu
+
+Android:
+
+* folders for organizing documents
+* remember previous pen
+* add simplified Chinese language
+
+
+v1.8 (Feb 26, 2013)
+
+* pressure sensitive pens
+* improve error handling when opening and saving documents
+* warn if new page size clips strokes
+* true highlighters (drawn behind other strokes)
+* use page background color in bookmark view
+
+Desktop:
+
+* option to automatically save recent pens, globally or per-document
+* back/forward navigation for links and bookmarks
+* indicate selected bookmark
+* option to prompt before saving document
+* ability to reset global and per-document configuration
+
+Android:
+
+* option to pan when writing by swiping in from edge of screen
+* display changelog on update
+
+
+v1.7.3 (Feb 20, 2013 - Windows only)
+
+* Quick fix for bookmark destroying bug; included some features
+
+
+v1.7.2 (Feb 15, 2013 - only released for Windows)
+
+* undo/redo now preserves z-order of strokes
+* shortcut for creating link to bookmark: tap in bookmark view with pen button depressed
+
+Windows:
+
+* pen support on Windows 8 without Wacom driver
+* fix touch input handling
+* tool menus now open immediately and close when released (can be disabled)
+* pen previews enlarged
+* move scrollbar to left side of window by default to prevent accidental scrolling
+* bookmarks now displayed in moveable, dockable window
+* improved error handling when opening documents
+* optional warning if open document is modified outside Write
+* automatic update check
+
+
+v1.7.1 (Jan 18, 2013)
+
+* simplify preferences
+* fix problem with reflow of links
+* don't include bookmarks in links
+
+Android:
+
+* remember last folder in file browser
+* improve file browser interface
+* back key closes bookmarks
+* move undo indicator in discrete steps; fix problem on small screens
+
+Windows:
+
+* links to local files
+
+
+v1.7 (Jan 4, 2013)
+
+* added ability to create hyperlinks to bookmarks and external websites
+* ruled mode tools now work on unruled pages
+* ruled insert space can now delete covered strokes when removing space
+* insert new blank line if reflow flows text onto blank line
+* fix problem setting default page height
+* use contrasting selection color on dark pages
+
+Android:
+
+* action performed by volume keys now configurable
+* pen previews on pen menu are now resolution independent
+* if we receive a pen event assume we have a pen device
+* option to keep screen on when document is open
+* pen menu no longer clipped in landscape mode on small screens
+
+Windows:
+
+* update pen width and color selectors based on current selection
+
+
+v1.6 (Dec. 12, 2012)
+
+* continuous scrolling (horizontal or vertical)
+* drag and drop selection between pages
+* lasso select tool
+* ability to resize selection
+* double tap to zoom to 100%
+* by popular demand ... PDF export
+* better handling of touch input
+* fix loss of stroke grouping when saving file
+* optionally disable antialiasing when moving strokes, for performance
+* option to auto expand page only when inserting space or moving selection
+* scale display based on screen dpi
+* reduce horizontal scrolling range
+
+Android:
+
+* configurable document storage location
+* pan tool to allow panning when all touch input is disabled
+* reject touch events immediately before or after active pen
+* improvements to page setup dialog
+* use google docs to open PDFs in web view
+
+Windows/Linux:
+
+* support touch input
+* sync clipboard with system clipboard
+* undo/redo dial now works on Linux tablets
+* improved UI
+* preferences dialog
+
+
+v1.5 (August 24, 2012)
+
+* per document configuration values
+* make bookmarks display correctly in SVG (for real, this time)
+* proper handling of paths containing dots
+* clear selection if invert selection yields empty selection
+
+Windows (Aug 27, 2012):
+
+* recent document list
+* optionally reopen last document on start
+* predefined options in page setup dialog
+* fix crash opening document on Windows (bad code has been in Android version since 1.4 with no apparent
+ problems, so Android update will be deferred to next major release)
+
+Android:
+
+* support for Samsung Note devices
+* option to keep tool menus open for non-stylus users
+* option to import all documents in styluslabs/write folder
+* do not force desktop user agent for web view by default
+* more options for touch/pen input
+* export ZIP file of all documents
+* zoom all, zoom width added to zoom menu
+* save last URL visited for each doc and reload when web view is opened
+* allow zooming of bookmark view
+
+
+v 1.4.1 (July 16, 2012)
+
+* fix bookmark display issue with narrow ruled pages
+* fix crash opening file with no pages
+
+Android:
+
+* fix crash due to missing onClick handler for tool menu rows
+
+
+v1.4 (July 14, 2012)
+
+* fix worse reflow bug introduced by last reflow bug fix
+* correct SVG serialization for bookmarks
+* improve bookmark navigation
+* fix crash when erasing in selection
+
+Windows:
+
+* improved pen button detection
+
+Android:
+
+* new UI and action bar, including:
+ * drop down menus for selecting tool mode
+ * ability to save pens
+ * undo/redo dial
+ * expanded color palette and custom pen color selection
+ * fix for display issues on 7 inch screens (hopefully)
+* add pan option for pen button
+* add help document available from main menu
+
+
+v1.3 (June 28, 2012)
+
+* fix behavior when undo/redo removes last page
+* allow any tool to be assigned to pen button
+* fix problem with drawing large number of bookmarks
+* more reasonable autoscroll behavior
+* ruled eraser no longer erases whole lines if used off page
+* configurable rule line color
+* prevent panning when clicking bookmark
+
+Windows:
+
+* option to completely ignore mouse input
+* save main window geometry and state to write.xml
+
+Android:
+
+* fix bug which caused blanking of documents in rare instances
+* configurable pen button support on Android 4.0
+* add page color and rule color to page setup dialog; can set global defaults from page setup dialog
+* use new style preferences screen
+* add option to reset preferences
+* option to move most recently used document to top of document list
+
+
+v1.2 (May 29, 2012)
+
+* remember ruled mode setting
+* fix reflow bug
+
+Android:
+
+* options to send or save entire document as a single HTML file
+
+
+v1.1 (May 20, 2012)
+
+* actually change page color
+* fix scrolling bug with very large pages
+* properly handle undo/redo of page size changes
+* properly track document modified state with page insertion and removal
+* misc drawing fixes
+
+* Windows:
+ * option to save entire document to single html file
+ * fix bugs with backup of one-file-per-page document on autosave (by removing
+ backup feature)
+ * added zoom width, zoom all
+ * remember bookmark pane width
+
+* Android:
+ * fix corrupted page display on some devices
+ * fix sporadic crash after long app pause (maybe)
+ * add color picker for default page color
+ * improved support for smaller displays
+ * pause video playback in web view when app is paused, other browser improvements
+
+v1.0 (Initial release)

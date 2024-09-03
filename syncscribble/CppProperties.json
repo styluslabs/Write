@@ -1,0 +1,16 @@
+{
+  "configurations": [
+    {
+      "inheritEnvironments": [
+        "msvc_x64"
+      ],
+      "name": "Windows x64",
+      "includePath": [ "${env.INCLUDE}", "..", "../usvg", "../ugui", "../nanovg-2/src", "../pugixml/src", "../stb", "../miniz", "../SDL/include" ],
+      "defines": [ "PUGIXML_NO_XPATH", "PUGIXML_NO_EXCEPTIONS", "NVG_STB_EXTERNAL", "_USE_MATH_DEFINES", "UNICODE", "NOMINMAX", "IDE_INCLUDES", "FILEUTIL_IMPLEMENTATION", "MINIZ_GZ_IMPLEMENTATION", "PLATFORMUTIL_IMPLEMENTATION", "STRINGUTIL_IMPLEMENTATION", "UNET_IMPLEMENTATION" ],
+      "compilerSwitches": "/std:c++14 /MT",
+      "intelliSenseMode": "msvc-x64",
+      "forcedInclude": [ ],
+      "undefines": []
+    }
+  ]
+}

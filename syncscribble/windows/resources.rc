@@ -1,0 +1,30 @@
+// since IDI_ICON1, etc. aren't defined in a resource.h, I think they'll just be treated as strings
+IDI_ICON1   ICON    "write.ico"
+IDI_ICON2   ICON    "ruled.ico"
+
+#include <windows.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     VERSIONCSV
+PRODUCTVERSION  VERSIONCSV
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904E4"
+        BEGIN
+            VALUE "CompanyName",        "Stylus Labs"
+            VALUE "FileDescription",    "Write"
+            VALUE "FileVersion",        VERSIONSTR
+            VALUE "InternalName",       "Write"
+            VALUE "LegalCopyright",     "Copyright 2020 Stylus Labs"
+            VALUE "OriginalFilename",   "write.exe"
+            VALUE "ProductName",        "Write"
+            VALUE "ProductVersion",     VERSIONSTR
+        END
+    END
+
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1252
+    END
+END

@@ -1,0 +1,70 @@
+apply plugin: 'com.android.application'
+//apply plugin: 'com.android.library'
+
+android {
+    compileSdkVersion 30
+    namespace 'com.styluslabs.writeqt'
+    defaultConfig {
+        applicationId "com.styluslabs.writeqt"
+        versionCode 24
+        versionName "3.0.24"
+        // SDK 18 for GLES 3.0 (linking fails for ES3.1 fns for armv7), SDK 21 for GLES 3.1
+        minSdkVersion 21
+        targetSdkVersion 29
+        externalNativeBuild {
+            ndkBuild {
+                arguments "APP_PLATFORM=android-21", "V=1"
+                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // remove this to produced unsigned APK for upload to Google Play (after manually signing)
+            signingConfig signingConfigs.debug
+            // enable this for Google Play APK
+            minifyEnabled false
+            // to add release specific compiler flags, add cFlags or cppFlags here
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            ndk {
+                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+            }
+        }
+        arm64rel {
+            //initWith(buildTypes.release)
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            ndk {
+                abiFilters 'arm64-v8a'
+            }
+        }
+        x86rel {
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            ndk {
+                abiFilters 'x86'
+            }
+        }
+    }
+
+    sourceSets.main {
+        jniLibs.srcDir 'libs'
+    }
+    externalNativeBuild {
+        ndkBuild {
+            path 'src/main/jni/Android.mk'
+        }
+    }
+    ndkVersion '26.3.11579264'
+
+
+    lintOptions {
+        abortOnError false
+        disable 'ExpiredTargetSdkVersion'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation 'com.android.support:support-v4:28.0.0'
+}
