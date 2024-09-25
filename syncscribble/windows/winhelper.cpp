@@ -615,9 +615,9 @@ Image getClipboardImage()
       *(DWORD*)(buff + 10) = bfOffset;
       memcpy(buff + bfHdrSize, bminfo, bfSize - bfHdrSize);
 
-      // waiting on fix https://github.com/nothings/stb/pull/934 for incorrect assert - throws in debug
-      //  mode but no problem for release
-      img = Image::decodeBuffer(buff, bfSize, Image::PNG);  // we have to assume PNG for clipboard
+      // we have to assume PNG for clipboard; since Image::encodePNG() checks for PNG header, not a problem
+      //  that encoded format is Windows bitmap instead of PNG
+      img = Image::decodeBuffer(buff, bfSize, Image::PNG);
       free(buff);
       GlobalUnlock(dib);
     }

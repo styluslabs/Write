@@ -78,7 +78,12 @@ BUILDDIRS=$(sort $(dir $(OBJ)))
 
 all: $(TGT)
 
-tgz: $(TGZ)
+tgz:
+	sudo mount --bind $${HOME}/styluslabs $${HOME}/build-chroot$${HOME}/styluslabs/
+	sudo chroot --userspec=$${USER}:$${USER} $${HOME}/build-chroot/ /bin/bash -c "cd $${HOME}/styluslabs/syncscribble && make DEBUG=0 BUILDDIR=LinuxRel real_tgz"
+	sudo umount $${HOME}/build-chroot$${HOME}/styluslabs
+
+real_tgz: $(TGZ)
 
 $(OBJDIR)/%.o: %.cpp
 	$(CXX) -c $(CFLAGS) $(CXXFLAGS) $(INCFLAGS) -o $@ $<
