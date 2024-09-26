@@ -1,24 +1,32 @@
 [submodule "stb"]
 	path = stb
 	url = https://github.com/nothings/stb.git
+	ignore = untracked
 [submodule "pugixml"]
 	path = pugixml
 	url = https://github.com/zeux/pugixml.git
+	ignore = untracked
 [submodule "miniz"]
 	path = miniz
 	url = https://github.com/richgel999/miniz.git
+	ignore = untracked
 [submodule "SDL"]
 	path = SDL
 	url = https://github.com/pbsurf/SDL.git
+	ignore = untracked
 [submodule "nanovgXC"]
 	path = nanovgXC
 	url = https://github.com/styluslabs/nanovgXC.git
+	ignore = untracked
 [submodule "ulib"]
 	path = ulib
 	url = https://github.com/styluslabs/ulib.git
+	ignore = untracked
 [submodule "usvg"]
 	path = usvg
 	url = https://github.com/styluslabs/usvg.git
+	ignore = untracked
 [submodule "ugui"]
 	path = ugui
 	url = https://github.com/styluslabs/ugui.git
+	ignore = untracked
