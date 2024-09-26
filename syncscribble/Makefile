@@ -55,7 +55,7 @@ SOURCES += \
   ../usvg/svgwriter.cpp \
   ../usvg/pdfwriter.cpp \
   ../usvg/cssparser.cpp \
-  ../nanovg-2/src/nanovg.c \
+  ../nanovgXC/src/nanovg.c \
   ../pugixml/src/pugixml.cpp
 
 # image I/O; stb_image and stb_image_write are included inline in uvg/image.cpp
@@ -70,18 +70,18 @@ SOURCES += \
 TOPDIR = syncscribble
 
 # -I and -isystem include paths
-INC = . .. ../nanovg-2/src ../nanovg-2/glad
+INC = . .. ../nanovgXC/src ../nanovgXC/glad
 INCSYS = ../pugixml/src ../stb
 
 MAJORVER := 3
 MINORVER := 0
-HGREV := $(shell hg id -n)
+#HGREV := $(shell hg id -n)
 GITREV := $(shell git rev-parse --short HEAD)
 GITCOUNT := $(shell git rev-list --count HEAD)
 APPVERSION := $(MAJORVER).$(MINORVER).$(GITCOUNT)
 # defines for pugixml config instead of forking whole repo; use external STB libs in nanovg
 DEFS = PUGIXML_NO_XPATH PUGIXML_NO_EXCEPTIONS
-DEFS += SCRIBBLE_REV_NUMBER="$(HGREV);$(GITREV)"
+DEFS += SCRIBBLE_REV_NUMBER="$(GITREV)"
 
 
 ifneq ($(windir),)
@@ -90,7 +90,7 @@ ifneq ($(windir),)
 SOURCES += \
   windows/winhelper.cpp \
   windows/wintab/Utils.c \
-  ../nanovg-2/glad/glad.c
+  ../nanovgXC/glad/glad.c
 
 RESOURCES = windows/resources.rc
 INCSYS += ../SDL/include
@@ -123,7 +123,7 @@ LIBS += $(SDL_LIB)
 FORCECPP = ../layout/layout.obj
 
 # distribution package
-ZIPFILE = write$(HGREV).zip
+ZIPFILE = write$(GITCOUNT).zip
 ZIPDIR = Write
 DISTRES = \
   ../scribbleres/fonts/Roboto-Regular.ttf \
@@ -138,7 +138,7 @@ else ifneq ($(MACOS),)
 # pass MACOS=1 to make to force macOS build (instead of default of iOS on mac)
 
 APPDIR = Write.app
-SOURCES += macos/macoshelper.m ../nanovg-2/glad/glad.c
+SOURCES += macos/macoshelper.m ../nanovgXC/glad/glad.c
 INCSYS += ../SDL/include
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 LIBS = ../SDL/MacRelease/libSDL2.a -liconv
@@ -264,7 +264,7 @@ include Makefile.wasm
 else
 # Linux - uses SDL 2.0.10 (branch write-linux); see scribbleres/SDL-Makefile.unix
 
-SOURCES += linux/linuxtablet.c ../nanovg-2/glad/glad.c
+SOURCES += linux/linuxtablet.c ../nanovgXC/glad/glad.c
 INCSYS += ../SDL/Release/include
 #INCFILES = ../scribbleres/force_link_glibc_2.14.h  -- doesn't work anymore, build in chroot instead
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
@@ -283,7 +283,7 @@ CFLAGS = -pthread
 LIBS += -pthread -ldl -lX11 -lXi
 
 # distribution package
-TGZ = write$(HGREV).tar.gz
+TGZ = write$(GITCOUNT).tar.gz
 DISTRES = \
   ../scribbleres/fonts/Roboto-Regular.ttf \
   ../scribbleres/fonts/DroidSansFallback.ttf \
