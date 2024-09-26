@@ -1174,7 +1174,8 @@ void ScribbleApp::setClipboardToImage(Image img, bool lossy)
   Dim s = std::min(Dim(1),
       std::min(activeArea()->getCurrPage()->width()/2/imgw, activeArea()->getCurrPage()->height()/2/imgh));
   Rect bbox = Rect::ltwh(100*ScribbleView::unitsPerPx, 100.5*ScribbleView::unitsPerPx, imgw*s, imgh*s);
-  img.encoding = lossy ? Image::JPEG : Image::PNG;
+  if(img.encoding == Image::UNKNOWN)
+    img.encoding = lossy ? Image::JPEG : Image::PNG;
   Element* pic = new Element(new SvgImage(std::move(img), bbox));
   clipboard.reset(new Clipboard);
   clipboard->addStroke(pic);
