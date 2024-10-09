@@ -262,21 +262,31 @@ LIBS = ../SDL/build/build/.libs/libSDL2.a  ../SDL/build/build/.libs/libSDL2main.
 include Makefile.wasm
 
 else
-# Linux - uses SDL 2.0.10 (branch write-linux); see scribbleres/SDL-Makefile.unix
 
 SOURCES += linux/linuxtablet.c ../nanovgXC/glad/glad.c
-INCSYS += ../SDL/Release/include
-#INCFILES = ../scribbleres/force_link_glibc_2.14.h  -- doesn't work anymore, build in chroot instead
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 DEBUG ?= 0
+USE_SYSTEM_SDL ?= 0
+ifneq ($(USE_SYSTEM_SDL),0)
+  # Linux - pass `USE_SYSTEM_SDL=1` to use the system SDL2 (via pkg-config Makefile.unix)
+  PKGS += sdl2
+else
+  # Linux - uses SDL 2.0.10 (branch write-linux); see scribbleres/SDL-Makefile.unix
+  INCSYS += ../SDL/Release/include
+  #INCFILES = ../scribbleres/force_link_glibc_2.14.h  -- doesn't work anymore, build in chroot instead
+  ifneq ($(DEBUG), 0)
+    LIBS = ../SDL/Debug/libSDL2d.a
+  else
+    # use $(BUILDDIR) to support Release and LinuxRel
+    LIBS = ../SDL/$(BUILDDIR)/libSDL2.a
+  endif
+endif
+
 ifneq ($(DEBUG), 0)
-  LIBS = ../SDL/Debug/libSDL2d.a
   # use asan by default for debug build
   SANITIZE = 1
-else
-  # use $(BUILDDIR) to support Release and LinuxRel
-  LIBS = ../SDL/$(BUILDDIR)/libSDL2.a
 endif
+
 # must use this instead of just -lpthread so the defines needed by force_glibc.h are created
 CFLAGS = -pthread
 # X11 and Xi needed for linuxtablet.c
