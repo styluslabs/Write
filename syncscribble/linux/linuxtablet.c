@@ -1,4 +1,6 @@
+#include "SDL_video.h"
 #include <string.h>
+#include <stdbool.h>
 #include <ctype.h>  // for tolower
 #include <X11/extensions/XInput2.h>
 
@@ -40,10 +42,16 @@ static TabletData tabletData[MAX_TABLETS];
 static size_t nTablets = 0;
 
 static struct {
+  bool valid;
   Atom absX, absY, absP, tiltX, tiltY, clipboard, imagePng, sdlSel, Incr, utf8String;
 } XAtoms;
 
 static int xinput2_opcode;
+
+// TODO: union with XAtoms?
+static struct {
+  bool valid;
+} WlInfo;
 
 
 static TabletData* findDevice(int sourceid)
@@ -380,8 +388,7 @@ static void processClipboardXEvent(XEvent* xevent)
   }
 }
 
-void linuxProcessXEvent(SDL_Event* event)
-{
+static void _linuxProcessXEvent(SDL_Event *event) {
   XEvent* xevent = &event->syswm.msg->msg.x11.event;
   if(xevent->type == GenericEvent) {
     XGenericEventCookie* cookie = &xevent->xcookie;
@@ -399,14 +406,17 @@ void linuxProcessXEvent(SDL_Event* event)
     processClipboardXEvent(xevent);
 }
 
-int linuxInitTablet(SDL_Window* sdlwin)
+void linuxProcessXEvent(SDL_Event* event)
 {
-  SDL_SysWMinfo wmInfo;
-  SDL_VERSION(&wmInfo.version)
-  if(!SDL_GetWindowWMInfo(sdlwin, &wmInfo))
-    return 0;
-  Display* xDisplay = wmInfo.info.x11.display;
-  Window xWindow = wmInfo.info.x11.window;
+  if (XAtoms.valid) {
+    _linuxProcessXEvent(event);
+  }
+}
+
+static int initXAtoms(SDL_SysWMinfo* wmInfo) {
+  XAtoms.valid = true;
+  Display* xDisplay = wmInfo->info.x11.display;
+  Window xWindow = wmInfo->info.x11.window;
 
   XAtoms.clipboard = XInternAtom(xDisplay, "CLIPBOARD", 0);
   XAtoms.imagePng = XInternAtom(xDisplay, "image/png", 0);
@@ -455,6 +465,25 @@ int linuxInitTablet(SDL_Window* sdlwin)
   return nTablets;
 }
 
+int linuxInitTablet(SDL_Window* sdlwin)
+{
+  XAtoms.valid = false;
+  WlInfo.valid = false;
+  SDL_SysWMinfo wmInfo;
+  SDL_VERSION(&wmInfo.version)
+  if(!SDL_GetWindowWMInfo(sdlwin, &wmInfo))
+    return 0;
+
+  switch (wmInfo.subsystem) {
+    case SDL_SYSWM_X11:
+      return initXAtoms(&wmInfo);
+    case SDL_SYSWM_WAYLAND:
+      return 0;
+    default:
+      return 0;
+  }
+}
+
 #ifdef XINPUT2_TEST
 // gcc -DXINPUT2_TEST -o xitest linuxtablet.c -lSDL2 -lX11 -lXi
 // refs: /usr/include/X11/extensions/XInput2.h, XI2.h
@@ -501,8 +530,7 @@ int main(int argc, char* argv[])
 // * https://stackoverflow.com/questions/27378318/c-get-string-from-clipboard-on-linux/44992938#44992938
 // * https://github.com/glfw/glfw/blob/master/src/x11_window.c
 
-int requestClipboard(SDL_Window* sdlwin)
-{
+static int requestXClipboard(SDL_Window* sdlwin) {
   SDL_SysWMinfo wmInfo;
   SDL_VERSION(&wmInfo.version)
   if(!SDL_GetWindowWMInfo(sdlwin, &wmInfo))
@@ -518,4 +546,12 @@ int requestClipboard(SDL_Window* sdlwin)
   // XConvertSelection is asynchronous - we have to wait for SelectionNotify message
   XConvertSelection(xDisplay, XAtoms.clipboard, XAtoms.imagePng, XAtoms.sdlSel, xWindow, CurrentTime);
   return 1;
+}
+
+int requestClipboard(SDL_Window* sdlwin)
+{
+  if (XAtoms.valid) {
+    return requestXClipboard(sdlwin);
+  }
+  return 0;
 }
