@@ -285,6 +285,18 @@ else
   endif
 endif
 
+WAYLAND ?= 1
+WAYLAND_PROTOCOL_DIR=$(BUILDDIR)/wayland-protocols
+ifneq ($(WAYLAND), 0)
+	SOURCES += \
+		$(WAYLAND_PROTOCOL_DIR)/wayland.c \
+		$(WAYLAND_PROTOCOL_DIR)/tablet-v2.c
+
+	INCSYS += $(WAYLAND_PROTOCOL_DIR)
+
+	PKGS += wayland-client
+endif
+
 # must use this instead of just -lpthread so the defines needed by force_glibc.h are created
 CFLAGS = -pthread
 # X11 and Xi needed for linuxtablet.c

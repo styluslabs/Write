@@ -74,7 +74,7 @@ DEPS=$(SRCBASE:%=$(OBJDIR)/%.d)
 TGT=$(BUILDDIR)/$(TARGET)
 # gcc will not create directories, so depend on existence of all directories in output folder
 # sort removes duplicates (which cause make error)
-BUILDDIRS=$(sort $(dir $(OBJ)))
+BUILDDIRS=$(sort $(dir $(OBJ)) $(WAYLAND_PROTOCOL_DIR))
 
 .PHONY: all tgz clean distclean sourcelist
 
@@ -95,6 +95,14 @@ $(OBJDIR)/%.o: %.c
 
 $(TGT): $(OBJ)
 	$(LD) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+$(WAYLAND_PROTOCOL_DIR)/%.h: wayland-protocols/%.xml
+	wayland-scanner client-header < $< > $@
+
+# TODO: private-code does not depend on client-header, I should figure out where exactly to
+# put the headers
+$(WAYLAND_PROTOCOL_DIR)/%.c: wayland-protocols/%.xml $(WAYLAND_PROTOCOL_DIR)/%.h
+	wayland-scanner private-code < $< > $@
 
 $(TGZ): $(TGT) $(DISTRES)
 	strings $(TGT) | grep "^GLIBC_"
