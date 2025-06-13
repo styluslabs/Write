@@ -1,18 +1,58 @@
 #include "linuxwayland.h"
+#include "SDL_events.h"
 #include "SDL_syswm.h"
+#include "SDL_timer.h"
 #include "tablet-v2.h"
+#include "ugui/svggui_platform.h"
 #include "wayland-client-protocol.h"
 #include "SDL_video.h"
+#include "wayland-util.h"
 #include <stdio.h>
 #include <string.h>
 
+#define MAX_TOOLS 32
+
+typedef struct FrameInfo {
+  uint32_t type;
+} FrameInfo;
+
+typedef struct ToolState {
+  struct zwp_tablet_tool_v2* tool;
+  SDL_Window* window; // TODO: move somewhere else
+  float x;
+  float y;
+  FrameInfo frame;
+} ToolState;
+
 typedef struct WlState {
+  SDL_Window* window;
   struct wl_seat* seat;
   struct zwp_tablet_manager_v2* tabletManager;
   struct zwp_tablet_seat_v2* tabletSeat;
+  ToolState tools[MAX_TOOLS];
 } WlState;
 
 static WlState wlState = {0};
+
+static void wlReportTabletEvent(uint32_t type, float x, float y)
+{
+  SDL_Event event = {
+    .tfinger = {
+      .type = type,
+      .timestamp = SDL_GetTicks(),
+      .touchId = PenPointerPen, // TODO
+      .fingerId = 0, // TODO
+      .x = x,
+      .y = y,
+      .dx = 0, // TODO
+      .dy = 0, // TODO
+      .pressure = 1.0, // TODO
+      // .windowID = 0,    /**< The window underneath the finger, if any */
+    }
+  };
+
+  SDL_PeepEvents(&event, 1, SDL_ADDEVENT, 0, 0);
+}
 
 static void handleSeatCapabilities(void* data, struct wl_seat* seat, 
     uint32_t capabilities)
@@ -66,19 +106,26 @@ void handleTabletToolProximityOut(void *data,
 {
 }
 void handleTabletToolDown(void *data,
-                          struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
+                          struct zwp_tablet_tool_v2* tool,
                           uint32_t serial)
 {
+  ToolState* toolState = data;
+  toolState->frame.type = SDL_FINGERDOWN;
 }
 void handleTabletToolUp(void *data,
                         struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2)
 {
+  ToolState* toolState = data;
+  toolState->frame.type = SDL_FINGERUP;
 }
 void handleTabletToolMotion(void *data,
                             struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
                             wl_fixed_t x,
                             wl_fixed_t y)
 {
+  ToolState* toolState = data;
+  toolState->x = wl_fixed_to_double(x);
+  toolState->y = wl_fixed_to_double(y);
 }
 void handleTabletToolPressure(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -123,6 +170,18 @@ void handleTabletToolFrame(void *data,
                            struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
                            uint32_t time)
 {
+  ToolState* toolState = data;
+  if(toolState->frame.type == 0) {
+    // TODO: log?
+    return;
+  }
+
+  int win_w, win_h;
+  SDL_GetWindowSize(wlState.window, &win_w, &win_h);
+
+  wlReportTabletEvent(toolState->frame.type, toolState->x * win_w,
+                      toolState->y * win_h);
+  toolState->frame.type = 0;
 }
 
 static const struct zwp_tablet_tool_v2_listener tabletToolListener = {
@@ -156,7 +215,13 @@ static void handleTabletAdded(void* data, struct zwp_tablet_seat_v2* tabSeat,
 static void handleToolAdded(void* data, struct zwp_tablet_seat_v2* tabletSeat, 
     struct zwp_tablet_tool_v2* tool)
 {
-  zwp_tablet_tool_v2_add_listener(tool, &tabletToolListener, NULL);
+  // TODO: multiple tools
+  for(int i = 0; i < MAX_TOOLS; i++) {
+    if(wlState.tools[i].tool)
+      continue;
+
+    zwp_tablet_tool_v2_add_listener(tool, &tabletToolListener, &wlState.tools[i]);
+  }
 }
 
 static void handlePadAdded(void* data, struct zwp_tablet_seat_v2* tabletSeat, struct zwp_tablet_pad_v2* pad)
@@ -197,6 +262,7 @@ static const struct wl_registry_listener registry_listener = {
 
 int linuxInitWayland(SDL_Window* sdlwin)
 {
+  wlState.window = sdlwin;
   SDL_SysWMinfo wmInfo;
   SDL_VERSION(&wmInfo.version);
   if(!SDL_GetWindowWMInfo(sdlwin, &wmInfo))
