@@ -1,7 +1,9 @@
 #include "linuxwayland.h"
+#include "SDL_error.h"
 #include "SDL_events.h"
 #include "SDL_syswm.h"
 #include "SDL_timer.h"
+#include "SDL_version.h"
 #include "tablet-v2.h"
 #include "ugui/svggui_platform.h"
 #include "wayland-client-protocol.h"
@@ -34,6 +36,18 @@ typedef struct WlState {
 } WlState;
 
 static WlState wlState = {0};
+
+static float getDisplayScaleFactor(SDL_Window* window) {
+  int displayIdx = SDL_GetWindowDisplayIndex(window);
+  float ddpi, hdpi, vdpi;
+  if (SDL_GetDisplayDPI(displayIdx, &ddpi, &hdpi, &vdpi) == 0) {
+    return ddpi/96.f; // 96 DPI is the baseline scale
+  }
+
+  printf("%s", SDL_GetError());
+  // TODO: is there something else I can do?
+  return 1.f;
+}
 
 static void wlReportTabletEvent(uint32_t type, float x, float y)
 {
@@ -133,9 +147,10 @@ void handleTabletToolMotion(void *data,
                             wl_fixed_t y)
 {
   ToolState* toolState = data;
-  // TODO: needs scaling by logical scale
-  toolState->x = wl_fixed_to_double(x);
-  toolState->y = wl_fixed_to_double(y);
+  float scale = getDisplayScaleFactor(wlState.window);
+
+  toolState->x = wl_fixed_to_double(x) * scale;
+  toolState->y = wl_fixed_to_double(y) * scale;
   if(toolState->frame.type == 0)
     toolState->frame.type = SDL_FINGERMOTION;
 }
