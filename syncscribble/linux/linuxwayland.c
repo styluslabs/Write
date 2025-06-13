@@ -9,6 +9,7 @@
 #include "wayland-util.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 
 #define MAX_TOOLS 32
 
@@ -91,8 +92,16 @@ void handleTabletToolDone(void *data,
 {
 }
 void handleTabletToolRemoved(void *data,
-                             struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2)
+                             struct zwp_tablet_tool_v2 *tool)
 {
+  for(int i = 0; i < MAX_TOOLS; i++) {
+    if(wlState.tools[i].tool == tool) {
+      wlState.tools[i] = (ToolState){0};
+      break;
+    }
+  }
+
+  zwp_tablet_tool_v2_destroy(tool);
 }
 void handleTabletToolProximityIn(void *data,
                                  struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -124,8 +133,11 @@ void handleTabletToolMotion(void *data,
                             wl_fixed_t y)
 {
   ToolState* toolState = data;
+  // TODO: needs scaling by logical scale
   toolState->x = wl_fixed_to_double(x);
   toolState->y = wl_fixed_to_double(y);
+  if(toolState->frame.type == 0)
+    toolState->frame.type = SDL_FINGERMOTION;
 }
 void handleTabletToolPressure(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -172,15 +184,16 @@ void handleTabletToolFrame(void *data,
 {
   ToolState* toolState = data;
   if(toolState->frame.type == 0) {
+    printf("bad frame: type == 0\n");
     // TODO: log?
     return;
   }
 
-  int win_w, win_h;
-  SDL_GetWindowSize(wlState.window, &win_w, &win_h);
+  // not sure if this is needed
+  if((toolState->frame.type & SDL_FINGERMOTION) == 0)
+    wlReportTabletEvent(SDL_FINGERMOTION, toolState->x, toolState->y);
 
-  wlReportTabletEvent(toolState->frame.type, toolState->x * win_w,
-                      toolState->y * win_h);
+  wlReportTabletEvent(toolState->frame.type, toolState->x, toolState->y);
   toolState->frame.type = 0;
 }
 
@@ -215,13 +228,10 @@ static void handleTabletAdded(void* data, struct zwp_tablet_seat_v2* tabSeat,
 static void handleToolAdded(void* data, struct zwp_tablet_seat_v2* tabletSeat, 
     struct zwp_tablet_tool_v2* tool)
 {
-  // TODO: multiple tools
-  for(int i = 0; i < MAX_TOOLS; i++) {
-    if(wlState.tools[i].tool)
-      continue;
+  if(wlState.tools[0].tool == tool)
+    return;
 
-    zwp_tablet_tool_v2_add_listener(tool, &tabletToolListener, &wlState.tools[i]);
-  }
+  zwp_tablet_tool_v2_add_listener(tool, &tabletToolListener, &wlState.tools[0]);
 }
 
 static void handlePadAdded(void* data, struct zwp_tablet_seat_v2* tabletSeat, struct zwp_tablet_pad_v2* pad)
