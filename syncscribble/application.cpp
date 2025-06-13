@@ -11,6 +11,7 @@
 #include "windows/winhelper.h"
 #include "SDL_syswm.h"
 #elif PLATFORM_LINUX
+#include "mainwindow.h"
 #include "linux/linuxtablet.h"
 #elif PLATFORM_OSX
 #include "macos/macoshelper.h"
@@ -147,6 +148,27 @@ static void poolWait()
 static int sdlEventFilter(void* app, SDL_Event* event)
 {
 #if PLATFORM_LINUX
+  switch(event->type) {
+    case SDL_FINGERDOWN:
+    case SDL_FINGERMOTION:
+    case SDL_FINGERUP: {
+      // TODO: check is wayland before this
+
+      // sdl touch event positions are between 0 and 1, ugui expects pixel position
+      // by default
+      int win_w, win_h;
+      SDL_GetWindowSize(static_cast<ScribbleApp*>(app)->win->sdlWindow, &win_w, &win_h);
+      event->tfinger.x *= win_w;
+      event->tfinger.y *= win_h;
+      event->tfinger.dx *= win_w;
+      event->tfinger.dy *= win_h;
+      const auto f = event->tfinger;
+      SDL_PeepEvents(event, 1, SDL_ADDEVENT, 0, 0);
+      return 0;
+    }
+    default:
+      break;
+  }
   if(event->type == SDL_SYSWMEVENT) {
     linuxProcessXEvent(event);
     return 0;  // no further processing
