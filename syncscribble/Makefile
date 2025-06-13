@@ -266,7 +266,7 @@ include Makefile.wasm
 
 else
 
-SOURCES += linux/linuxtablet.c ../nanovgXC/glad/glad.c
+SOURCES += linux/linuxtablet.c linux/linuxwayland.c ../nanovgXC/glad/glad.c
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 DEBUG ?= 0
 USE_SYSTEM_SDL ?= 0

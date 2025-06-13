@@ -1,4 +1,5 @@
 #include "application.h"
+#include "linux/linuxwayland.h"
 #include "usvg/svgpainter.h"
 #include "usvg/svgwriter.h"
 #include "usvg/svgparser.h"
@@ -434,6 +435,7 @@ int SDL_main(int argc, char* argv[])
 #elif PLATFORM_OSX
   macosDisableMouseCoalescing();  // get all tablet input points
 #elif PLATFORM_LINUX
+  linuxInitWayland(sdlWindow);
   linuxInitTablet(sdlWindow);
   SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);  // linuxtablet.c handles touch events even if no pen
 #elif PLATFORM_EMSCRIPTEN

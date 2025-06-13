@@ -99,10 +99,11 @@ $(TGT): $(OBJ)
 $(WAYLAND_PROTOCOL_DIR)/%.h: wayland-protocols/%.xml
 	wayland-scanner client-header < $< > $@
 
-# TODO: private-code does not depend on client-header, I should figure out where exactly to
-# put the headers
-$(WAYLAND_PROTOCOL_DIR)/%.c: wayland-protocols/%.xml $(WAYLAND_PROTOCOL_DIR)/%.h
+$(WAYLAND_PROTOCOL_DIR)/%.c: wayland-protocols/%.xml
 	wayland-scanner private-code < $< > $@
+
+# TODO: there should be a better way...
+linux/linuxwayland.c: $(WAYLAND_PROTOCOL_DIR)/wayland.h $(WAYLAND_PROTOCOL_DIR)/tablet-v2.h
 
 $(TGZ): $(TGT) $(DISTRES)
 	strings $(TGT) | grep "^GLIBC_"
