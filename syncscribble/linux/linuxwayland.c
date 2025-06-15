@@ -19,6 +19,8 @@
 typedef struct FrameInfo {
   uint32_t toolType;
   uint32_t eventType;
+  float tiltX; // normalized to -1 .. +1
+  float tiltY; // normalized to -1 .. +1
   float pressure; // normalized to 0..1
   unsigned int buttons;
 } FrameInfo;
@@ -63,8 +65,8 @@ static void wlReportTabletEvent(ToolState* state)
       .fingerId = state->frame.buttons,
       .x = state->x,
       .y = state->y,
-      .dx = 0, // TODO
-      .dy = 0, // TODO
+      .dx = state->frame.tiltX,
+      .dy = state->frame.tiltY,
       .pressure = state->frame.pressure,
       // .windowID = 0,
     }
@@ -198,6 +200,13 @@ void handleTabletToolTilt(void *data,
                           wl_fixed_t tilt_x,
                           wl_fixed_t tilt_y)
 {
+  ToolState* toolState = data;
+  // Wayland tilt is in degrees, relative to the z-axis of the tablet,
+  // and is positive when the top of a tool tilts along the positive x
+  // or y axis.
+  // Our internal representation should be normalized to -1 .. 1
+  toolState->frame.tiltX = wl_fixed_to_double(tilt_x) / 90.f;
+  toolState->frame.tiltY = wl_fixed_to_double(tilt_y) / 90.f;
 }
 void handleTabletToolRotation(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
