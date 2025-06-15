@@ -19,6 +19,7 @@
 typedef struct FrameInfo {
   uint32_t toolType;
   uint32_t eventType;
+  float pressure; // normalized to 0..1
   unsigned int buttons;
 } FrameInfo;
 
@@ -64,7 +65,7 @@ static void wlReportTabletEvent(ToolState* state)
       .y = state->y,
       .dx = 0, // TODO
       .dy = 0, // TODO
-      .pressure = 1.0, // TODO
+      .pressure = state->frame.pressure,
       // .windowID = 0,
     }
   };
@@ -182,6 +183,10 @@ void handleTabletToolPressure(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
                               uint32_t pressure)
 {
+  ToolState* toolState = data;
+
+  // according to spec, pressure is normalized to a value between 0 and 65535
+  toolState->frame.pressure = (float)pressure / 65535;
 }
 void handleTabletToolDistance(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
