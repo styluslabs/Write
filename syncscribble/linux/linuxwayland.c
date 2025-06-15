@@ -1,6 +1,7 @@
 #include "linuxwayland.h"
 #include "SDL_error.h"
 #include "SDL_events.h"
+#include "SDL_mouse.h"
 #include "SDL_syswm.h"
 #include "SDL_timer.h"
 #include "SDL_version.h"
@@ -17,6 +18,7 @@
 
 typedef struct FrameInfo {
   uint32_t type;
+  unsigned int buttons;
 } FrameInfo;
 
 typedef struct ToolState {
@@ -49,24 +51,42 @@ static float getDisplayScaleFactor(SDL_Window* window) {
   return 1.f;
 }
 
-static void wlReportTabletEvent(uint32_t type, float x, float y)
+static void wlReportTabletEvent(ToolState* state)
 {
   SDL_Event event = {
     .tfinger = {
-      .type = type,
+      .type = state->frame.type,
       .timestamp = SDL_GetTicks(),
-      .touchId = PenPointerPen, // TODO
-      .fingerId = 0, // TODO
-      .x = x,
-      .y = y,
+      .touchId = state->frame.toolType == ZWP_TABLET_TOOL_V2_TYPE_ERASER ? PenPointerEraser : PenPointerPen,
+      .fingerId = state->frame.buttons,
+      .x = state->x,
+      .y = state->y,
       .dx = 0, // TODO
       .dy = 0, // TODO
       .pressure = 1.0, // TODO
-      // .windowID = 0,    /**< The window underneath the finger, if any */
+      // .windowID = 0,
     }
   };
 
   SDL_PeepEvents(&event, 1, SDL_ADDEVENT, 0, 0);
+}
+
+static int wlToSDLButton(uint32_t b)
+{
+  // SDL_BUTTON_LMASK is used to represent pen down/pen up
+  // SDL_BUTTON_MMASK represents side button pressed state
+  // SDL_BUTTON_MMASK represents second side button pressed state
+  switch (b) {
+  // see %{_includedir}/linux/input-event-codes.h
+  case 0x14b: // BTN_STYLUS
+    return SDL_BUTTON_MMASK;
+  case 0x14c: // BTN_STYLUS2
+    return SDL_BUTTON_RMASK;
+  // case 0x149: // BTN_STYLUS3
+  //   return SDL_BUTTON_RMASK;
+  default:
+    return 0;
+  }
 }
 
 static void handleSeatCapabilities(void* data, struct wl_seat* seat, 
@@ -192,6 +212,12 @@ void handleTabletToolButton(void *data,
                             uint32_t button,
                             uint32_t state)
 {
+  ToolState* toolState = data;
+
+  if(state == ZWP_TABLET_PAD_V2_BUTTON_STATE_PRESSED)
+    toolState->frame.buttons |= wlToSDLButton(button);
+  else // TODO: linuxtablet.c does a ^= , which seems weird to me
+    toolState->frame.buttons &= ~wlToSDLButton(button);
 }
 void handleTabletToolFrame(void *data,
                            struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -206,9 +232,9 @@ void handleTabletToolFrame(void *data,
 
   // not sure if this is needed
   if((toolState->frame.type & SDL_FINGERMOTION) == 0)
-    wlReportTabletEvent(SDL_FINGERMOTION, toolState->x, toolState->y);
+    wlReportTabletEvent(toolState);
 
-  wlReportTabletEvent(toolState->frame.type, toolState->x, toolState->y);
+  wlReportTabletEvent(toolState);
   toolState->frame.type = 0;
 }
 
