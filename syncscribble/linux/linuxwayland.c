@@ -16,27 +16,21 @@
 
 #define MAX_TOOLS 32
 
-typedef struct FrameInfo {
+typedef struct ToolState {
+  struct zwp_tablet_tool_v2* tool;
   uint32_t toolType;
-
-  // 0 means not set this frame
-  // 1 means pen up
-  // 2 means pen down
-  int penDown;
-
-  bool moved;
+  float x;
+  float y;
   float tiltX; // normalized to -1 .. +1
   float tiltY; // normalized to -1 .. +1
   float pressure; // normalized to 0..1
   unsigned int buttons;
-} FrameInfo;
 
-typedef struct ToolState {
-  struct zwp_tablet_tool_v2* tool;
-  SDL_Window* window; // TODO: move somewhere else
-  float x;
-  float y;
-  FrameInfo frame;
+  // 0 means not set this frame.
+  // 1 means pen up.
+  // 2 means pen down.
+  int framePenDown;
+  bool frameMotionSet;
 } ToolState;
 
 typedef struct WlState {
@@ -64,20 +58,20 @@ static float getDisplayScaleFactor(SDL_Window* window) {
 static void wlReportTabletEvent(ToolState* state)
 {
   uint32_t eventType = SDL_FINGERMOTION;
-  if(state->frame.penDown != 0)
-    eventType = state->frame.penDown == 1 ? SDL_FINGERUP : SDL_FINGERDOWN;
+  if(state->framePenDown != 0)
+    eventType = state->framePenDown == 1 ? SDL_FINGERUP : SDL_FINGERDOWN;
 
   SDL_Event event = {
     .tfinger = {
       .type = eventType,
       .timestamp = SDL_GetTicks(),
-      .touchId = state->frame.toolType == ZWP_TABLET_TOOL_V2_TYPE_ERASER ? PenPointerEraser : PenPointerPen,
-      .fingerId = state->frame.buttons,
+      .touchId = state->toolType == ZWP_TABLET_TOOL_V2_TYPE_ERASER ? PenPointerEraser : PenPointerPen,
+      .fingerId = state->buttons,
       .x = state->x,
       .y = state->y,
-      .dx = state->frame.tiltX,
-      .dy = state->frame.tiltY,
-      .pressure = state->frame.pressure,
+      .dx = state->tiltX,
+      .dy = state->tiltY,
+      .pressure = state->pressure,
       .windowID = 0, // unused
     }
   };
@@ -127,7 +121,7 @@ static const struct wl_seat_listener seatListener = {
 static void handleTabletToolType(void* data, struct zwp_tablet_tool_v2* tool, uint32_t type)
 {
   ToolState* toolState = data;
-  toolState->frame.toolType = type;
+  toolState->toolType = type;
 }
 
 static void handleHardwareSerial(void* data, struct zwp_tablet_tool_v2* tool, uint32_t hi, uint32_t lo)
@@ -176,13 +170,13 @@ void handleTabletToolDown(void *data,
                           uint32_t serial)
 {
   ToolState* toolState = data;
-  toolState->frame.penDown = 2;
+  toolState->framePenDown = 2;
 }
 void handleTabletToolUp(void *data,
                         struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2)
 {
   ToolState* toolState = data;
-  toolState->frame.penDown = 1;
+  toolState->framePenDown = 1;
 }
 void handleTabletToolMotion(void *data,
                             struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -194,7 +188,7 @@ void handleTabletToolMotion(void *data,
 
   toolState->x = wl_fixed_to_double(x) * scale;
   toolState->y = wl_fixed_to_double(y) * scale;
-  toolState->frame.moved = true;
+  toolState->frameMotionSet = true;
 }
 void handleTabletToolPressure(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -203,7 +197,7 @@ void handleTabletToolPressure(void *data,
   ToolState* toolState = data;
 
   // according to spec, pressure is normalized to a value between 0 and 65535
-  toolState->frame.pressure = (float)pressure / 65535;
+  toolState->pressure = (float)pressure / 65535;
 }
 void handleTabletToolDistance(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -220,8 +214,8 @@ void handleTabletToolTilt(void *data,
   // and is positive when the top of a tool tilts along the positive x
   // or y axis.
   // Our internal representation should be normalized to -1 .. 1
-  toolState->frame.tiltX = wl_fixed_to_double(tilt_x) / 90.f;
-  toolState->frame.tiltY = wl_fixed_to_double(tilt_y) / 90.f;
+  toolState->tiltX = wl_fixed_to_double(tilt_x) / 90.f;
+  toolState->tiltY = wl_fixed_to_double(tilt_y) / 90.f;
 }
 void handleTabletToolRotation(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -248,9 +242,9 @@ void handleTabletToolButton(void *data,
   ToolState* toolState = data;
 
   if(state == ZWP_TABLET_PAD_V2_BUTTON_STATE_PRESSED)
-    toolState->frame.buttons |= wlToSDLButton(button);
+    toolState->buttons |= wlToSDLButton(button);
   else // TODO: linuxtablet.c does a ^= , which seems weird to me
-    toolState->frame.buttons &= ~wlToSDLButton(button);
+    toolState->buttons &= ~wlToSDLButton(button);
 }
 void handleTabletToolFrame(void *data,
                            struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -259,8 +253,8 @@ void handleTabletToolFrame(void *data,
   ToolState* toolState = data;
 
   wlReportTabletEvent(toolState);
-  toolState->frame.penDown = 0;
-  toolState->frame.moved = false;
+  toolState->framePenDown = 0;
+  toolState->frameMotionSet = false;
 }
 
 static const struct zwp_tablet_tool_v2_listener tabletToolListener = {
