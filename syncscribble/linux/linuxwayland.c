@@ -68,11 +68,17 @@ static void wlReportTabletEvent(ToolState* state)
       .dx = state->frame.tiltX,
       .dy = state->frame.tiltY,
       .pressure = state->frame.pressure,
-      // .windowID = 0,
+      .windowID = 0, // unused
     }
   };
 
   SDL_PeepEvents(&event, 1, SDL_ADDEVENT, 0, 0);
+
+  // fprintf(stderr,
+  //     "Wayland tablet event: touchId: %ld, x,y: (%f, %f), buttons: %ld,"
+  //     "tilt: (%f, %f), pressure: %f",
+  //     event.tfinger.touchId, event.tfinger.x, event.tfinger.y, event.tfinger.fingerId,
+  //     event.tfinger.dx, event.tfinger.dy, event.tfinger.pressure);
 }
 
 static int wlToSDLButton(uint32_t b)
