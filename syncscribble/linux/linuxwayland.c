@@ -18,7 +18,13 @@
 
 typedef struct FrameInfo {
   uint32_t toolType;
-  uint32_t eventType;
+
+  // 0 means not set this frame
+  // 1 means pen up
+  // 2 means pen down
+  int penDown;
+
+  bool moved;
   float tiltX; // normalized to -1 .. +1
   float tiltY; // normalized to -1 .. +1
   float pressure; // normalized to 0..1
@@ -57,9 +63,13 @@ static float getDisplayScaleFactor(SDL_Window* window) {
 
 static void wlReportTabletEvent(ToolState* state)
 {
+  uint32_t eventType = SDL_FINGERMOTION;
+  if(state->frame.penDown != 0)
+    eventType = state->frame.penDown == 1 ? SDL_FINGERUP : SDL_FINGERDOWN;
+
   SDL_Event event = {
     .tfinger = {
-      .type = state->frame.eventType,
+      .type = eventType,
       .timestamp = SDL_GetTicks(),
       .touchId = state->frame.toolType == ZWP_TABLET_TOOL_V2_TYPE_ERASER ? PenPointerEraser : PenPointerPen,
       .fingerId = state->frame.buttons,
@@ -166,13 +176,13 @@ void handleTabletToolDown(void *data,
                           uint32_t serial)
 {
   ToolState* toolState = data;
-  toolState->frame.eventType = SDL_FINGERDOWN;
+  toolState->frame.penDown = 2;
 }
 void handleTabletToolUp(void *data,
                         struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2)
 {
   ToolState* toolState = data;
-  toolState->frame.eventType = SDL_FINGERUP;
+  toolState->frame.penDown = 1;
 }
 void handleTabletToolMotion(void *data,
                             struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -184,8 +194,7 @@ void handleTabletToolMotion(void *data,
 
   toolState->x = wl_fixed_to_double(x) * scale;
   toolState->y = wl_fixed_to_double(y) * scale;
-  if(toolState->frame.eventType == 0)
-    toolState->frame.eventType = SDL_FINGERMOTION;
+  toolState->frame.moved = true;
 }
 void handleTabletToolPressure(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -248,18 +257,10 @@ void handleTabletToolFrame(void *data,
                            uint32_t time)
 {
   ToolState* toolState = data;
-  if(toolState->frame.eventType == 0) {
-    printf("bad frame: type == 0\n");
-    // TODO: log?
-    return;
-  }
-
-  // not sure if this is needed
-  if((toolState->frame.eventType & SDL_FINGERMOTION) == 0)
-    wlReportTabletEvent(toolState);
 
   wlReportTabletEvent(toolState);
-  toolState->frame.eventType = 0;
+  toolState->frame.penDown = 0;
+  toolState->frame.moved = false;
 }
 
 static const struct zwp_tablet_tool_v2_listener tabletToolListener = {
