@@ -17,7 +17,8 @@
 #define MAX_TOOLS 32
 
 typedef struct FrameInfo {
-  uint32_t type;
+  uint32_t toolType;
+  uint32_t eventType;
   unsigned int buttons;
 } FrameInfo;
 
@@ -55,7 +56,7 @@ static void wlReportTabletEvent(ToolState* state)
 {
   SDL_Event event = {
     .tfinger = {
-      .type = state->frame.type,
+      .type = state->frame.eventType,
       .timestamp = SDL_GetTicks(),
       .touchId = state->frame.toolType == ZWP_TABLET_TOOL_V2_TYPE_ERASER ? PenPointerEraser : PenPointerPen,
       .fingerId = state->frame.buttons,
@@ -104,8 +105,10 @@ static const struct wl_seat_listener seatListener = {
   .name = handleSeatName,
 };
 
-static void handleTabletToolType(void* , struct zwp_tablet_tool_v2* , uint32_t )
+static void handleTabletToolType(void* data, struct zwp_tablet_tool_v2* tool, uint32_t type)
 {
+  ToolState* toolState = data;
+  toolState->frame.toolType = type;
 }
 
 static void handleHardwareSerial(void* data, struct zwp_tablet_tool_v2* tool, uint32_t hi, uint32_t lo)
@@ -128,6 +131,7 @@ void handleTabletToolDone(void *data,
 void handleTabletToolRemoved(void *data,
                              struct zwp_tablet_tool_v2 *tool)
 {
+  // TODO: use pointer artihmetic to find index
   for(int i = 0; i < MAX_TOOLS; i++) {
     if(wlState.tools[i].tool == tool) {
       wlState.tools[i] = (ToolState){0};
@@ -153,13 +157,13 @@ void handleTabletToolDown(void *data,
                           uint32_t serial)
 {
   ToolState* toolState = data;
-  toolState->frame.type = SDL_FINGERDOWN;
+  toolState->frame.eventType = SDL_FINGERDOWN;
 }
 void handleTabletToolUp(void *data,
                         struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2)
 {
   ToolState* toolState = data;
-  toolState->frame.type = SDL_FINGERUP;
+  toolState->frame.eventType = SDL_FINGERUP;
 }
 void handleTabletToolMotion(void *data,
                             struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -171,8 +175,8 @@ void handleTabletToolMotion(void *data,
 
   toolState->x = wl_fixed_to_double(x) * scale;
   toolState->y = wl_fixed_to_double(y) * scale;
-  if(toolState->frame.type == 0)
-    toolState->frame.type = SDL_FINGERMOTION;
+  if(toolState->frame.eventType == 0)
+    toolState->frame.eventType = SDL_FINGERMOTION;
 }
 void handleTabletToolPressure(void *data,
                               struct zwp_tablet_tool_v2 *zwp_tablet_tool_v2,
@@ -224,18 +228,18 @@ void handleTabletToolFrame(void *data,
                            uint32_t time)
 {
   ToolState* toolState = data;
-  if(toolState->frame.type == 0) {
+  if(toolState->frame.eventType == 0) {
     printf("bad frame: type == 0\n");
     // TODO: log?
     return;
   }
 
   // not sure if this is needed
-  if((toolState->frame.type & SDL_FINGERMOTION) == 0)
+  if((toolState->frame.eventType & SDL_FINGERMOTION) == 0)
     wlReportTabletEvent(toolState);
 
   wlReportTabletEvent(toolState);
-  toolState->frame.type = 0;
+  toolState->frame.eventType = 0;
 }
 
 static const struct zwp_tablet_tool_v2_listener tabletToolListener = {
