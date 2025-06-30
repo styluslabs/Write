@@ -12,7 +12,7 @@ Cross-platform (Windows, Mac, Linux, iOS, Android) application for handwritten n
 Checkout: `git clone --recurse-submodules https://github.com/styluslabs/Write`
 
 To build executable `syncscribble/Release/Write`:
-* Linux: `cd syncscribble && make USE_SYSTEM_SDL=1`; On Debian/Ubuntu, `apt install build-essential libsdl2-dev`.  Copy fonts from scribbleres/fonts to syncscribble/Release before running Write.
+* Linux: `cd syncscribble && make USE_SYSTEM_PUGIXML=1 USE_SYSTEM_STB=1 USE_SYSTEM_SDL=1`; On Debian/Ubuntu, `apt install build-essential libstb-dev libpugixml-dev libsdl2-dev`.  Copy fonts from scribbleres/fonts to syncscribble/Release before running Write.
 * Android (on Linux): `cd syncscribble/android && ./gww installRelease`; to install Android SDK and NDK, run `gww --install-sdk`
 * iOS:
  * build SDL: `cd SDL && git checkout write-mac && make -f ../scribbleres/SDL-Makefile.ios`

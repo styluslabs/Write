@@ -55,8 +55,7 @@ SOURCES += \
   ../usvg/svgwriter.cpp \
   ../usvg/pdfwriter.cpp \
   ../usvg/cssparser.cpp \
-  ../nanovgXC/src/nanovg.c \
-  ../pugixml/src/pugixml.cpp
+  ../nanovgXC/src/nanovg.c
 
 # image I/O; stb_image and stb_image_write are included inline in uvg/image.cpp
 SOURCES += \
@@ -71,7 +70,7 @@ TOPDIR = syncscribble
 
 # -I and -isystem include paths
 INC = . .. ../nanovgXC/src ../nanovgXC/glad
-INCSYS = ../pugixml/src ../stb
+INCSYS =
 
 MAJORVER := 3
 MINORVER := 1
@@ -88,12 +87,13 @@ ifneq ($(windir),)
 # Windows
 
 SOURCES += \
+  ../pugixml/src/pugixml.cpp \
   windows/winhelper.cpp \
   windows/wintab/Utils.c \
   ../nanovgXC/glad/glad.c
 
 RESOURCES = windows/resources.rc
-INCSYS += ../SDL/include
+INCSYS += ../pugixml/src ../stb ../SDL/include
 DEFS += SCRIBBLE_TEST_PATH="\"$(CURDIR)/../scribbletest\""
 DEFS += _USE_MATH_DEFINES UNICODE NOMINMAX FONS_WPATH
 
@@ -139,8 +139,8 @@ else ifneq ($(MACOS),)
 # pass MACOS=1 to make to force macOS build (instead of default of iOS on mac)
 
 APPDIR = Write.app
-SOURCES += macos/macoshelper.m ../nanovgXC/glad/glad.c
-INCSYS += ../SDL/include
+SOURCES += macos/macoshelper.m ../nanovgXC/glad/glad.c ../pugixml/src/pugixml.cpp
+INCSYS += ../pugixml/src ../stb ../SDL/include
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 LIBS = ../SDL/MacRelease/libSDL2.a -liconv
 FRAMEWORKS = CoreServices CoreGraphics IOKit Metal OpenGL AppKit CoreVideo Carbon
@@ -161,7 +161,7 @@ include Makefile.mac
 else ifneq ($(XPC_FLAGS),)
 # iOS (XPC_FLAGS seems to be defined on macOS)
 
-SOURCES += ios/ioshelper.m
+SOURCES += ios/ioshelper.m ../pugixml/src/pugixml.cpp
 DEFS += GLES_SILENCE_DEPRECATION
 XIB = ios/LaunchView.xib
 # app store now requires app icon be in an asset catalog
@@ -232,7 +232,7 @@ endif
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
-SOURCES += android/androidhelper.cpp
+SOURCES += ../pugixml/src/pugixml.cpp android/androidhelper.cpp
 
 # SDLActivity is hardcoded to load "libmain.so"
 LOCAL_MODULE := main
@@ -253,8 +253,8 @@ include $(BUILD_SHARED_LIBRARY)
 else ifneq ($(EMSDK),)
 # Emscripten
 
-SOURCES += wasm/wasmhelper.c
-INCSYS += ../SDL/include
+SOURCES += ../pugixml/src/pugixml.cpp wasm/wasmhelper.c
+INCSYS += ../pugixml/src ../stb ../SDL/include
 #INCFILES = linux/force_glibc.h
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 DEBUG ?= 0
@@ -267,7 +267,22 @@ else
 SOURCES += linux/linuxtablet.c ../nanovgXC/glad/glad.c
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 DEBUG ?= 0
+USE_SYSTEM_PUGIXML ?= 0
+USE_SYSTEM_STB ?= 0
 USE_SYSTEM_SDL ?= 0
+ifneq ($(USE_SYSTEM_PUGIXML),0)
+  # Linux - pass `USE_SYSTEM_PUGIXML=1` to use the system pugixml (via pkg-config Makefile.unix)
+  PKGS += pugixml
+else
+  SOURCES += ../pugixml/src/pugixml.cpp
+  INCSYS += ../pugixml/src
+endif
+ifneq ($(USE_SYSTEM_STB),0)
+  # Linux - pass `USE_SYSTEM_STB=1` to use the system stb (via pkg-config Makefile.unix)
+  PKGS += stb
+else
+  INCSYS += ../stb
+endif
 ifneq ($(USE_SYSTEM_SDL),0)
   # Linux - pass `USE_SYSTEM_SDL=1` to use the system SDL2 (via pkg-config Makefile.unix)
   PKGS += sdl2
