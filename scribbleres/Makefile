@@ -15,4 +15,4 @@ res_strings.cpp: strings/*.xml
 	python3 embed.py --compress $^ > $@
 
 clean:
-	rm res_icons.cpp res_strings.cpp
+	rm -f res_icons.cpp res_strings.cpp
