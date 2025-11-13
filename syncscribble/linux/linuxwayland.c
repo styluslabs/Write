@@ -313,9 +313,6 @@ static void registryHandleGlobal(void* data, struct wl_registry* registry,
     wl_seat_add_listener(wlState.seat, &seatListener, NULL);
   } else if(strcmp(interface, zwp_tablet_manager_v2_interface.name) == 0) {
     wlState.tabletManager = wl_registry_bind(registry, name, &zwp_tablet_manager_v2_interface, 1);
-    // TODO: is wlState.seat guaranteed to be valid at this point?
-    wlState.tabletSeat = zwp_tablet_manager_v2_get_tablet_seat(wlState.tabletManager, wlState.seat);
-    zwp_tablet_seat_v2_add_listener(wlState.tabletSeat, &tabletSeatListener, NULL);
   }
 }
 
@@ -329,6 +326,13 @@ static const struct wl_registry_listener registry_listener = {
   .global = registryHandleGlobal,
   .global_remove = registryHandleGlobalRemove,
 };
+
+static void initTabletSeat() {
+  if (wlState.tabletManager && wlState.seat) {
+    wlState.tabletSeat = zwp_tablet_manager_v2_get_tablet_seat(wlState.tabletManager, wlState.seat);
+    zwp_tablet_seat_v2_add_listener(wlState.tabletSeat, &tabletSeatListener, NULL);
+  }
+}
 
 int linuxInitWayland(SDL_Window* sdlwin)
 {
@@ -348,6 +352,10 @@ int linuxInitWayland(SDL_Window* sdlwin)
 
   // do I need this?
   wl_display_roundtrip(wmInfo.info.wl.display);
+
+  initTabletSeat();
+  // TODO: should I force another roundtrip? or call initTabletSeat as soon as
+  // seat and tablet_manager are both available?
 
   return 0;
 }
