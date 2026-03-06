@@ -243,7 +243,7 @@ void Application::setupUIScale(float horzdpi)
 }
 
 
-int SDL_main(int argc, char* argv[])
+int main(int argc, char* argv[])
 {
   Application::runApplication = true;
 #if PLATFORM_WIN
@@ -289,6 +289,11 @@ int SDL_main(int argc, char* argv[])
   //Application::appDir = sdlBasePath ? sdlBasePath : "";
   //SDL_free((void*)sdlBasePath);
 
+  if(argc > 0)
+    Application::appDir = canonicalPath(FSPath(argv[0]).parentPath());
+  else
+    Application::appDir = canonicalPath("./");
+
   // event filter clears SDL event queue, so set it before showing window
   ScribbleApp* scribbleApp = new ScribbleApp(argc, argv);
   ScribbleApp::app = scribbleApp;
@@ -308,10 +313,9 @@ int SDL_main(int argc, char* argv[])
     SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);  // needed for sRGB on iOS and Android
 #endif
 
-  /*
   SDL_Rect dispBounds;
   auto winGeom = parseNumbersList(ScribbleApp::cfg->String("windowState", ""), 6);
-  int dispIdx = winGeom.size() < 6 || winGeom[5] >= SDL_GetNumVideoDisplays() ? 0 : winGeom[5];
+  int dispIdx = 0;  //winGeom.size() < 6 || winGeom[5] >= SDL_GetNumVideoDisplays() ? 0 : winGeom[5];
   SDL_GetDisplayBounds(dispIdx, &dispBounds);
   if(winGeom.size() < 5 || winGeom[0] > dispBounds.w
       || winGeom[1] > dispBounds.h || winGeom[2] > dispBounds.w || winGeom[3] > dispBounds.h)
@@ -319,9 +323,12 @@ int SDL_main(int argc, char* argv[])
   Uint32 winMaxFlag = (winGeom[4] || PLATFORM_EMSCRIPTEN) ? SDL_WINDOW_MAXIMIZED : 0;
   winGeom[0] += dispBounds.x;
   winGeom[1] += dispBounds.y;
-  */
+  SDL_Rect winrect = {int(winGeom[0]), int(winGeom[1]), int(winGeom[2]), int(winGeom[3])};
 
-  //SDL_Window* sdlWindow = NULL;
+  int ret = Application::platformSetup("Write", "Write", winrect);
+  if(ret) { return ret; }
+
+  SDL_Window* sdlWindow = Application::sdlWindow;
   //SDL_GLContext sdlContext = NULL;
   NVGcontext* nvgContext = NULL;
 
@@ -498,13 +505,14 @@ int SDL_main(int argc, char* argv[])
   }
 #endif
 
-  /*
   // save window state
   int winMax = 0, winX = 0, winY = 0, winW = 0, winH = 0;
+  /*
   Uint32 winstate = SDL_GetWindowFlags(sdlWindow);
   winMax = winstate & SDL_WINDOW_MAXIMIZED ? 1 : 0;
   if(winMax)
     SDL_RestoreWindow(sdlWindow);
+  */
   // we could get size from SvgGui winBounds, but we have to get position from SDL anyway
   dispIdx = SDL_GetWindowDisplayIndex(sdlWindow);
   SDL_GetDisplayBounds(dispIdx, &dispBounds);
@@ -512,7 +520,6 @@ int SDL_main(int argc, char* argv[])
   SDL_GetWindowSize(sdlWindow, &winW, &winH);
   ScribbleApp::cfg->set("windowState", fstring("%d %d %d %d %d %d",
       winX - dispBounds.x, winY - dispBounds.y, winW, winH, winMax, dispIdx).c_str());
-  */
 
 #if IS_DEBUG && !PLATFORM_MOBILE
 //  SDL_HideWindow(sdlWindow);
@@ -534,7 +541,7 @@ int SDL_main(int argc, char* argv[])
   free(swFB);
   swFB = NULL;  // SDL_main can be called again on Android(!)
 #endif
-//  SDL_Quit();
+  Application::platformClose();  //  SDL_Quit();
   unet_terminate();
   return 0;
 }

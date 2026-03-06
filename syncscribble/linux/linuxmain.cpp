@@ -869,13 +869,13 @@ static void screenshotPng(int width, int height)
 }
 */
 
+/*
 static void initBaseDir(const char* exepath)
 {
   if(exepath)
     Application::appDir = canonicalPath(FSPath(exepath).parentPath());
   else
     Application::appDir = canonicalPath("./");
-  /*
   if(!FSPath(Application::appDir, "config.default.yaml").exists()) {
     if(exepath)
       MapsApp::baseDir = canonicalPath(FSPath(exepath).parentPath());
@@ -901,8 +901,8 @@ static void initBaseDir(const char* exepath)
     }
   }
   MapsApp::baseDir = xdgcfg.path;
-  */
 }
+*/
 
 // If WM_CLASS is set correctly, launcher icon specified in .desktop file will be used (as desired)
 /*
@@ -1007,11 +1007,11 @@ void Application::drawFrame()
 
 }
 
-extern int SDL_main(int argc, char* argv[]);
+//extern int SDL_main(int argc, char* argv[]);
 
-int main(int argc, char* argv[])
+int Application::platformSetup(const char* wintitle, const char* winclass, SDL_Rect winrect)
 {
-  initBaseDir(argc > 0 ? argv[0] : NULL);
+  //initBaseDir(argc > 0 ? argv[0] : NULL);
   /*
   MapsApp::loadConfig("");
 
@@ -1042,18 +1042,12 @@ int main(int argc, char* argv[])
 
   XSizeHints winSize = {};
   winSize.flags = PPosition | PSize;
-  winSize.x = 0; winSize.y = 0;
-  winSize.width = scrInfo->width/2;
-  winSize.height = int(0.9f*scrInfo->height);
-  /*
-  const YAML::Node& posYaml = MapsApp::cfg()["ui"]["position"];
-  if(posYaml.size() == 4) {
-    winSize.x = posYaml[0].as<int>(0);
-    winSize.y = posYaml[1].as<int>(0);
-    winSize.width = posYaml[2].as<int>(winSize.width);
-    winSize.height = posYaml[3].as<int>(winSize.height);
-  }
-  */
+  if(winrect.w == 0 || winrect.h == 0)
+    winrect = { 0, 0, scrInfo->width/2, int(0.9f*scrInfo->height) };
+  winSize.x = winrect.x;
+  winSize.y = winrect.y;
+  winSize.width = winrect.w;
+  winSize.height = winrect.h;
 
   if(!glXQueryExtension(xDpy, NULL, NULL)) { LOGE("glXQueryExtension() failed."); return -1; }
 
@@ -1075,8 +1069,8 @@ int main(int argc, char* argv[])
   xContext.win = xWin;
 
   // set WM_CLASS so window is associated with correct launcher icon
-  const char* res_name = "Ascend";
-  const char* res_class = "Ascend";
+  const char* res_name = winclass;  //"Ascend";
+  const char* res_class = winclass;  //"Ascend";
   XClassHint classHint;
   classHint.res_name = (char*)res_name;  // don't cast string directly to avoid warning
   classHint.res_class = (char*)res_class;
@@ -1092,7 +1086,7 @@ int main(int argc, char* argv[])
 
   // set WM_NAME (window title)
   //XStoreName(xDpy, xWin, "Ascend Maps");
-  XSetStandardProperties(xDpy, xWin, "Ascend Maps", "Ascend Maps", None, NULL, 0, &winSize);
+  XSetStandardProperties(xDpy, xWin, wintitle, wintitle, None, NULL, 0, &winSize);
   //setWinIcon(xDpy, xWin, FSPath(MapsApp::baseDir, "shared/icons/app144x144.png").c_str());
   XMapWindow(xDpy, xWin);
 
@@ -1271,9 +1265,12 @@ int main(int argc, char* argv[])
   NFD_Quit();
 */
 
-  int res = SDL_main(argc, argv);
+  //int res = SDL_main(argc, argv);
+}
 
-  glXMakeCurrent(xDpy, None, NULL);
+void Application::platformClose()
+{
+  glXMakeCurrent(xContext.dpy, None, NULL);
   //  offscreenWorker = std::move(Tangram::ElevationManager::offscreenWorker);
   //  if(offscreenWorker) {
   //    offscreenWorker->enqueue([=](){ glXMakeCurrent(xDpy, None, NULL); });
@@ -1284,7 +1281,7 @@ int main(int argc, char* argv[])
   if(xContext.img)
     deleteShmImage(xContext.dpy, xContext.img, &shminfo);
 
-  XCloseDisplay(xDpy);
+  XCloseDisplay(xContext.dpy);
 
-  return res;
+  //return res;
 }

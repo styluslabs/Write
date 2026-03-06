@@ -9,6 +9,7 @@ class SvgGui;
 class Window;
 class Dialog;
 struct SDL_Window;
+struct SDL_Rect;
 union SDL_Event;
 
 class Application
@@ -30,6 +31,9 @@ public:
   static void sdlEvent(SDL_Event* event);
   static void drawFrame();
   static void setSWFramebuffer(void* dest, int w, int h, int rshift, int gshift, int bshift, int ashift);
+
+  static int platformSetup(const char* wintitle, const char* winclass, SDL_Rect winrect);
+  static void platformClose();
 
 //private:
   static bool runApplication;
