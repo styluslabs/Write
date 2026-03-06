@@ -49,7 +49,7 @@ void ScribbleSync::connectSync(const char* server, const pugi::xml_node& xml, bo
       + "&document=" + docName + "&token=" + xml.attribute("token").as_string();
 
   if(sdlEventType == 0)
-    sdlEventType = SDL_RegisterEvents(1);
+    sdlEventType = 0x9FF1;  //SDL_RegisterEvents(1);
   netSem = new Semaphore;  //SDL_CreateSemaphore(0);
   syncState = SYNC_CONNECTING;
   netThread = new std::thread(netThreadFn, (void*)this);  //SDL_CreateThread(netThreadFn, "ScribbleSync_netThread", (void*)this);

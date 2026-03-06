@@ -93,7 +93,7 @@ ScribbleTest::~ScribbleTest()
 {
   if(syncSlave) {
     // ensure disconnect SDL event has been processed before deleting scribbleDoc!
-    SDL_Delay(20);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));  //SDL_Delay(20);
     ScribbleApp::processEvents();
     delete syncSlave;
   }

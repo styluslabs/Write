@@ -26,7 +26,8 @@
 #elif PLATFORM_OSX
 #include "macos/macoshelper.h"
 #elif PLATFORM_LINUX
-#include "linux/linuxtablet.h"
+//#include "linux/linuxtablet.h"
+extern int requestClipboard(SDL_Window* sdlwin);
 #endif
 
 ScribbleApp* ScribbleApp::app = NULL;
@@ -172,7 +173,7 @@ ScribbleApp::ScribbleApp(int argc, char* argv[])
 
 void ScribbleApp::init()
 {
-  scribbleSDLEvent = SDL_RegisterEvents(1);
+  scribbleSDLEvent = 0x9FC1;  //SDL_RegisterEvents(1);
   // Default pens
   auto dflttip = ScribblePen::TIP_FLAT | ScribblePen::WIDTH_PR;
   switch(std::max(0, 8 - int(cfg->pens.size()))) {
@@ -213,7 +214,7 @@ void ScribbleApp::init()
   //}
 #endif
   // keep screen on
-  cfg->Bool("keepScreenOn") ? SDL_DisableScreenSaver() : SDL_EnableScreenSaver();
+  //cfg->Bool("keepScreenOn") ? SDL_DisableScreenSaver() : SDL_EnableScreenSaver();
   //AndroidHelper::doAction(A_KEEP_SCREEN_ON);
 
   // setup page sizes on first run
@@ -857,7 +858,7 @@ bool ScribbleApp::keyPressEvent(SDL_Event* event)
 #endif
       if(mods & KMOD_ALT) { keystr.append("Alt+"); }
       if(mods & KMOD_SHIFT) { keystr.append("Shift+"); }
-      keystr.append(SDL_GetKeyName(event->key.keysym.sym));
+      //keystr.append(SDL_GetKeyName(event->key.keysym.sym));
       auto it = win->shortcuts.find(keystr);
       if(it != win->shortcuts.end()) {
         if(it->second && it->second->enabled())
@@ -1045,7 +1046,7 @@ void ScribbleApp::dropEvent(SDL_Event* event)
       if(clip) {
         // can we get drop event on Android?  if so, how to handle this?
         int x, y, x0, y0;
-        SDL_GetGlobalMouseState(&x, &y);
+        //SDL_GetGlobalMouseState(&x, &y);
         SDL_GetWindowPosition(win->sdlWindow, &x0, &y0);
         // offset.isNan() selects PasteCenter instead of PasteOrigin
         clip->content->addClass("external");

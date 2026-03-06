@@ -11,7 +11,7 @@
 #include "windows/winhelper.h"
 #include "SDL_syswm.h"
 #elif PLATFORM_LINUX
-#include "linux/linuxtablet.h"
+//#include "linux/linuxtablet.h"
 #elif PLATFORM_OSX
 #include "macos/macoshelper.h"
 #elif PLATFORM_EMSCRIPTEN
@@ -34,6 +34,13 @@
 #include <GLES3/gl3.h>
 #include <GLES3/gl2ext.h>
 #define GL_FRAMEBUFFER_SRGB GL_FRAMEBUFFER_SRGB_EXT
+
+#elif PLATFORM_LINUX
+
+#define GL_GLEXT_PROTOTYPES
+#include <GL/gl.h>
+#include <GL/glext.h>
+
 #else
 // GLAD generated files are in nanovg-2 repo; link to generate is:
 // https://glad.dav1d.de/#profile=core&language=c&specification=gl&loader=on&api=gl%3D3.3&extensions=GL_ARB_shader_image_load_store&extensions=GL_EXT_shader_framebuffer_fetch
@@ -144,7 +151,7 @@ static void poolWait()
   swFutures.clear();
 }
 
-static int sdlEventFilter(void* app, SDL_Event* event)
+/*static int sdlEventFilter(void* app, SDL_Event* event)
 {
 #if PLATFORM_LINUX
   if(event->type == SDL_SYSWMEVENT) {
@@ -157,7 +164,7 @@ static int sdlEventFilter(void* app, SDL_Event* event)
 #else
   return 1;
 #endif
-}
+}*/
 
 #if PLATFORM_EMSCRIPTEN
 #include "emscripten.h"
@@ -248,49 +255,50 @@ int SDL_main(int argc, char* argv[])
   //SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Attach Debugger", "Attach debugger than click OK.", NULL);
 
   // these apply to software renderer only (and must preceed SDL_Init) - avoid OpenGL entirely
-  SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0");
-  SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
-  SDL_Init(SDL_INIT_VIDEO);
+//  SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0");
+//  SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+//  SDL_Init(SDL_INIT_VIDEO);
 
-#if PLATFORM_IOS || PLATFORM_EMSCRIPTEN
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#elif PLATFORM_ANDROID
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-#else
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-  // 2.1 was working w/ GLES3 shader on desktop (VM and host), but probably shouldn't count on it
-  // nanovg gl3 impl. uses 3.3 core - consider trying 3.0 or 3.1 instead
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-#endif
-  //SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-  // if we're rendering everything to our own FB, we could try this:
-  //SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 0);  -- replace swap buffers with glFlush()
-  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);  // SDL docs say this gives speed up on iOS
-  SDL_GL_SetAttribute(SDL_GL_RETAINED_BACKING, 0);  // SDL docs say this gives speed up on iOS
-  // SDL defaults to RGB565 on iOS - I think we want more quality (e.g. for smooth gradients)
-  SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
-  SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-  SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
-  SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+//#if PLATFORM_IOS || PLATFORM_EMSCRIPTEN
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+//#elif PLATFORM_ANDROID
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+//#else
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+//  // 2.1 was working w/ GLES3 shader on desktop (VM and host), but probably shouldn't count on it
+//  // nanovg gl3 impl. uses 3.3 core - consider trying 3.0 or 3.1 instead
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+//  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+//#endif
+//  //SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+//  // if we're rendering everything to our own FB, we could try this:
+//  //SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 0);  -- replace swap buffers with glFlush()
+//  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);  // SDL docs say this gives speed up on iOS
+//  SDL_GL_SetAttribute(SDL_GL_RETAINED_BACKING, 0);  // SDL docs say this gives speed up on iOS
+//  // SDL defaults to RGB565 on iOS - I think we want more quality (e.g. for smooth gradients)
+//  SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+//  SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+//  SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+//  SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
 
-  const char* sdlBasePath = SDL_GetBasePath();
-  Application::appDir = sdlBasePath ? sdlBasePath : "";
-  SDL_free((void*)sdlBasePath);
+  //const char* sdlBasePath = SDL_GetBasePath();
+  //Application::appDir = sdlBasePath ? sdlBasePath : "";
+  //SDL_free((void*)sdlBasePath);
+
   // event filter clears SDL event queue, so set it before showing window
   ScribbleApp* scribbleApp = new ScribbleApp(argc, argv);
   ScribbleApp::app = scribbleApp;
-  SDL_SetEventFilter(sdlEventFilter, scribbleApp);  // for app lifecycle events
-#if PLATFORM_LINUX
-  SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");  // play nice with other apps
-#elif PLATFORM_ANDROID
-  if(AndroidHelper::doAction(A_GPU_BLACKLIST))  // try to catch some bad GPUs before even trying GL
-    ScribbleApp::cfg->set("glRender", 0);
-#endif
+//  SDL_SetEventFilter(sdlEventFilter, scribbleApp);  // for app lifecycle events
+//#if PLATFORM_LINUX
+//  SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");  // play nice with other apps
+//#elif PLATFORM_ANDROID
+//  if(AndroidHelper::doAction(A_GPU_BLACKLIST))  // try to catch some bad GPUs before even trying GL
+//    ScribbleApp::cfg->set("glRender", 0);
+//#endif
 
   bool sRGB = ScribbleApp::cfg->Bool("sRGB");
   int nvgFlags = NVG_AUTOW_DEFAULT | (sRGB ? NVG_SRGB : 0) | NVG_NO_FONTSTASH;
@@ -300,6 +308,7 @@ int SDL_main(int argc, char* argv[])
     SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);  // needed for sRGB on iOS and Android
 #endif
 
+  /*
   SDL_Rect dispBounds;
   auto winGeom = parseNumbersList(ScribbleApp::cfg->String("windowState", ""), 6);
   int dispIdx = winGeom.size() < 6 || winGeom[5] >= SDL_GetNumVideoDisplays() ? 0 : winGeom[5];
@@ -310,10 +319,13 @@ int SDL_main(int argc, char* argv[])
   Uint32 winMaxFlag = (winGeom[4] || PLATFORM_EMSCRIPTEN) ? SDL_WINDOW_MAXIMIZED : 0;
   winGeom[0] += dispBounds.x;
   winGeom[1] += dispBounds.y;
+  */
 
-  SDL_Window* sdlWindow = NULL;
-  SDL_GLContext sdlContext = NULL;
+  //SDL_Window* sdlWindow = NULL;
+  //SDL_GLContext sdlContext = NULL;
   NVGcontext* nvgContext = NULL;
+
+/*
   // mac and emscripten always use SW renderer
 #if !PLATFORM_OSX && !PLATFORM_EMSCRIPTEN
   if(ScribbleApp::cfg->Int("glRender")) {
@@ -367,16 +379,44 @@ int SDL_main(int argc, char* argv[])
   }  // /useGL
 #endif
   Application::glRender = nvgContext != NULL;
+*/
+
+  if(1) {
+
+  bool glLoadOK = true;
+  int cfgFlags = ScribbleApp::cfg->Int("nvgGlFlags", 0);
+#if PLATFORM_DESKTOP && !USE_NANOVG_VTEX
+  if(!cfgFlags) cfgFlags |= NVGL_NO_FB_FETCH;
+#endif
+  nvgContext = glLoadOK ? nvglCreate(nvgFlags | cfgFlags | (SCRIBBLE_DEBUG ? NVGL_DEBUG : 0)) : NULL;
+  Application::glRender = nvgContext != NULL;
+
+  } else  {
+
+  nvgContext = nvgswCreate(nvgFlags);
+  int ncores = std::thread::hardware_concurrency();
+  int nthreads = (ncores > 0 ? ncores : 4);  //(PLATFORM_MOBILE ? 1 : 2) -- hyperthreading incl on Windows
+//#if !IS_DEBUG
+  if(nthreads > 1) {
+    swThreadPool = new ThreadPool(nthreads);
+    nvgswSetThreading(nvgContext, nthreads/2, 2, poolSubmit, poolWait);
+  }
+//#endif
+
+  }
+
+
+/*
   // create SW window and nanovg-2 SW renderer if GL didn't work
   if(!nvgContext) {
-#if PLATFORM_ANDROID
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#endif
-#if PLATFORM_MOBILE
-    SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 0);  // otherwise Android will convert SW renderer output!
-#endif
+//#if PLATFORM_ANDROID
+//    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+//    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+//    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+//#endif
+//#if PLATFORM_MOBILE
+//    SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 0);  // otherwise Android will convert SW renderer output!
+//#endif
     sdlWindow = SDL_CreateWindow("Write", winGeom[0], winGeom[1], winGeom[2], winGeom[3],
         winMaxFlag|SDL_WINDOW_RESIZABLE|SDL_WINDOW_ALLOW_HIGHDPI|(USE_GL_BLITTER ? SDL_WINDOW_OPENGL : 0));
 #if USE_GL_BLITTER
@@ -403,21 +443,24 @@ int SDL_main(int argc, char* argv[])
     }
 #endif
   }
-  Application::sdlWindow = sdlWindow;
+*/
+
+  //Application::sdlWindow = sdlWindow;
 
 
   if(ScribbleApp::cfg->Bool("perfTrace")) { TRACE_INIT(); }
-#if PLATFORM_WIN
-  initTouchInput(sdlWindow, ScribbleApp::cfg->Bool("useWintab"));
-#elif PLATFORM_OSX
-  macosDisableMouseCoalescing();  // get all tablet input points
-#elif PLATFORM_LINUX
-  linuxInitTablet(sdlWindow);
-  SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);  // linuxtablet.c handles touch events even if no pen
-#elif PLATFORM_EMSCRIPTEN
-  wasmSetupInput();
-#endif
+//#if PLATFORM_WIN
+//  initTouchInput(sdlWindow, ScribbleApp::cfg->Bool("useWintab"));
+//#elif PLATFORM_OSX
+//  macosDisableMouseCoalescing();  // get all tablet input points
+//#elif PLATFORM_LINUX
+//  linuxInitTablet(sdlWindow);
+//  SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);  // linuxtablet.c handles touch events even if no pen
+//#elif PLATFORM_EMSCRIPTEN
+//  wasmSetupInput();
+//#endif
 
+  //painter.reset(new Painter(Painter::PAINT_GL | Painter::CACHE_IMAGES | Painter::ALIGN_SCISSOR));  //Painter::PAINT_SW | Painter::SW_BLIT_GL
   Painter::initFontStash(FONS_DELAY_LOAD | FONS_SUMMED);
   nvgSetFontStash(nvgContext, Painter::fontStash);
   Painter* painter = new Painter(nvgContext);
@@ -445,6 +488,7 @@ int SDL_main(int argc, char* argv[])
   Application::setupUIScale(dpi >= 10 && dpi <= 1200 ? dpi : 0);
 
   scribbleApp->init();  // this previously could enter event loop, but not anymore
+
 #if PLATFORM_EMSCRIPTEN
   //SvgGui::debugDirty = true;
   emscripten_set_main_loop(wasmMainLoop, 0, 1);  // fps = 0 (use default), infinite loop = 1 (never returns)
@@ -454,6 +498,7 @@ int SDL_main(int argc, char* argv[])
   }
 #endif
 
+  /*
   // save window state
   int winMax = 0, winX = 0, winY = 0, winW = 0, winH = 0;
   Uint32 winstate = SDL_GetWindowFlags(sdlWindow);
@@ -467,9 +512,10 @@ int SDL_main(int argc, char* argv[])
   SDL_GetWindowSize(sdlWindow, &winW, &winH);
   ScribbleApp::cfg->set("windowState", fstring("%d %d %d %d %d %d",
       winX - dispBounds.x, winY - dispBounds.y, winW, winH, winMax, dispIdx).c_str());
+  */
 
 #if IS_DEBUG && !PLATFORM_MOBILE
-  SDL_HideWindow(sdlWindow);
+//  SDL_HideWindow(sdlWindow);
   if(Application::glRender)
     SCRIBBLE_LOG("\n**** RUNNING TESTS ****\n%s\n", scribbleApp->runTest("test").c_str());
 #endif
@@ -481,21 +527,31 @@ int SDL_main(int argc, char* argv[])
     nvgluDeleteFramebuffer(nvglFB);
   if(swThreadPool)
     delete swThreadPool;
-  if(sdlContext)
-    SDL_GL_DeleteContext(sdlContext);
+//  if(sdlContext)
+//    SDL_GL_DeleteContext(sdlContext);
 #if USE_GL_BLITTER
   nvgswuDeleteBlitter(swBlitter);
   free(swFB);
   swFB = NULL;  // SDL_main can be called again on Android(!)
 #endif
-  SDL_Quit();
+//  SDL_Quit();
   unet_terminate();
   return 0;
 }
 
+void Application::setSWFramebuffer(void* dest, int w, int h, int rshift, int gshift, int bshift, int ashift)
+{
+  nvgswSetFramebuffer(painter->vg, dest, w, h, rshift, gshift, bshift, ashift);
+}
+
 void Application::layoutAndDraw()
 {
-  glRender ? layoutAndDrawGL() : layoutAndDrawSW();
+  Application::drawFrame();
+}
+
+bool Application::layoutAndDraw(int w, int h)
+{
+  return glRender ? layoutAndDrawGL(w, h) : layoutAndDrawSW(w, h);
 }
 
 static Rect tracedGuiLayoutAndDraw(int w, int h)
@@ -563,7 +619,7 @@ void Application::layoutAndDrawSW()
       int(dirty.left), int(dirty.top), int(dirty.width()), int(dirty.height())));
   TRACE_FLUSH();
 }
-#else
+#elif 0
 void Application::layoutAndDrawSW()
 {
   SDL_Surface* sdlSurface = SDL_GetWindowSurface(sdlWindow);  // has to be done every frame in case window resizes
@@ -595,17 +651,27 @@ void Application::layoutAndDrawSW()
     TRACE(SDL_UpdateWindowSurface(sdlWindow));
   TRACE_FLUSH();
 }
+#else
+bool Application::layoutAndDrawSW(int w, int h)
+{
+  Rect dirty = tracedGuiLayoutAndDraw(w, h);
+  if(!dirty.isValid())
+    return false;
+  TRACE(painter->endFrame());
+  TRACE_FLUSH();
+  return true;
+}
 #endif
 
-void Application::layoutAndDrawGL()
+bool Application::layoutAndDrawGL(int fbWidth, int fbHeight)
 {
-  int fbWidth = 0, fbHeight = 0;
-  SDL_GL_GetDrawableSize(sdlWindow, &fbWidth, &fbHeight);
+//  int fbWidth = 0, fbHeight = 0;
+//  SDL_GL_GetDrawableSize(sdlWindow, &fbWidth, &fbHeight);
 
   Rect oldDeviceRect = painter->deviceRect;
   Rect dirty = tracedGuiLayoutAndDraw(fbWidth, fbHeight);
   if(!dirty.isValid())
-    return;
+    return false;
   // for now, we scissor here to limit fill rate; we may add support directly to nanovg-2 later (but we would
   //  still need to set glScissor here to use glClear); we assume dirty has already been rounded to ints
 
@@ -639,8 +705,10 @@ void Application::layoutAndDrawGL()
     TRACE(SDL_GL_SwapWindow(sdlWindow));
   }
 #endif
+  return true;
 }
 
+/*
 // called from timerThreadFn() in svggui.cpp
 void PLATFORM_WakeEventLoop()
 {
@@ -656,9 +724,10 @@ void PLATFORM_WakeEventLoop()
   macosWakeEventLoop();
 #endif
 }
+*/
 
 // If this causes *any* difficulty in the future, move processEvents() and execWindow() back into ScribbleApp
-bool Application::processEvents()
+/*bool Application::processEvents()
 {
   SDL_Event event;
   // SDL_WaitEvent() does while(!SDL_PeekEvent()) { SDL_Delay(10) } ... fixed as of 2.24
@@ -720,6 +789,43 @@ bool Application::processEvents()
   } while(runApplication && SDL_PollEvent(&event));
 
   return runApplication;
+}
+*/
+
+void Application::sdlEvent(SDL_Event* event)
+{
+  TRACE_SCOPE("sdlEvent: type = %s", sdlEventName(event).c_str());
+#if IS_DEBUG
+  if(event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_PRINTSCREEN) {
+    if(event->key.keysym.mod & KMOD_CTRL)
+      SvgGui::debugDirty = !SvgGui::debugDirty;
+    else {
+      Window* debugWin = gui->windowfromSDLID(event->key.windowID);
+      if(debugWin && debugWin->modalChild())
+        debugWin = debugWin->modalChild();
+      debugWin = debugWin ? debugWin : gui->windows.front();
+      if(!(event->key.keysym.mod & KMOD_SHIFT)) {
+        // need to rerun layout w/ debugLayout set to get layout:ltwh data (prevent w/ Shift+PrintScreen)
+        SvgGui::debugLayout = true;
+        layoutAndDraw();  //layoutAndDraw();
+        SvgGui::debugLayout = false;
+      }
+      XmlStreamWriter xmlwriter;
+      SvgWriter::DEBUG_CSS_STYLE = true;
+      SvgWriter(xmlwriter).serialize(debugWin->documentNode());
+      SvgWriter::DEBUG_CSS_STYLE = false;
+#if PLATFORM_WIN
+      const char* debug_layout = "C:/Temp/debug_layout.svg";
+#else
+      const char* debug_layout = "/home/mwhite/styluslabs/usvg/test/debug_layout.svg";
+#endif
+      xmlwriter.saveFile(debug_layout);
+      PLATFORM_LOG("Post-layout SVG written to %s\n", debug_layout);
+    }
+  }
+  else
+#endif
+    gui->sdlEvent(event);
 }
 
 // show window and reenter event loop to block until window finishes

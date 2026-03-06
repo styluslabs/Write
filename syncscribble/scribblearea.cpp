@@ -19,6 +19,8 @@ const Dim ScribbleArea::AUTOSCROLL_BORDER = 60;
 const Dim ScribbleArea::MIN_CURSOR_RADIUS = 2;
 const Color ScribbleArea::BACKGROUND_COLOR = 0xFF444444;
 
+#define PLATFORM_MOBILE 1
+
 Image* ScribbleArea::watermark = NULL;
 #if !PLATFORM_MOBILE
 bool ScribbleArea::staticInited = false;
