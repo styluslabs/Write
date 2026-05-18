@@ -15,6 +15,7 @@
 #include <stdbool.h>
 
 #define MAX_TOOLS 32
+#define MAX_TOUCH_POINTS 10
 
 typedef struct ToolState {
   struct zwp_tablet_tool_v2* tool;
@@ -33,12 +34,39 @@ typedef struct ToolState {
   bool frameMotionSet;
 } ToolState;
 
+enum TouchEventMask {
+       TOUCH_EVENT_DOWN = 1 << 0,
+       TOUCH_EVENT_UP = 1 << 1,
+       TOUCH_EVENT_MOTION = 1 << 2,
+       TOUCH_EVENT_SHAPE = 1 << 3,
+       TOUCH_EVENT_ORIENTATION = 1 << 4,
+};
+
+typedef struct TouchPoint {
+  bool valid;
+  int32_t id;
+  uint32_t eventMask;
+
+  wl_fixed_t surface_x, surface_y;
+  wl_fixed_t major, minor;
+  wl_fixed_t orientation;
+} TouchPoint;
+
+typedef struct TouchEvent {
+  uint32_t time;
+  uint32_t serial;
+  bool cancelled;
+  struct TouchPoint points[MAX_TOUCH_POINTS];
+} TouchEvent;
+
 typedef struct WlState {
   SDL_Window* window;
   struct wl_seat* seat;
   struct zwp_tablet_manager_v2* tabletManager;
   struct zwp_tablet_seat_v2* tabletSeat;
+  struct wl_touch* touch;
   ToolState tools[MAX_TOOLS];
+  TouchEvent touchEvent;
 } WlState;
 
 static WlState wlState = {0};
@@ -103,10 +131,150 @@ static int wlToSDLButton(uint32_t b)
   }
 }
 
+static TouchPoint *
+getTouchPoint(WlState *state, int32_t id)
+{
+  struct TouchEvent *touch = &state->touchEvent;
+  const size_t nmemb = sizeof(touch->points) / sizeof(struct TouchPoint);
+  int invalid = -1;
+  for (size_t i = 0; i < nmemb; ++i) {
+    if (touch->points[i].valid && touch->points[i].id == id) {
+      return &touch->points[i];
+    }
+    if (invalid == -1 && !touch->points[i].valid) {
+      invalid = i;
+    }
+  }
+  if (invalid == -1) {
+    return NULL;
+  }
+  touch->points[invalid].valid = true;
+  touch->points[invalid].id = id;
+  touch->points[invalid].eventMask = 0;
+  return &touch->points[invalid];
+}
+
+static void reportTouchEvent(uint32_t eventType, uint32_t id,
+                             wl_fixed_t surface_x, wl_fixed_t surface_y)
+{
+  float scale = getDisplayScaleFactor(wlState.window);
+
+  SDL_Event event = {0};
+  event.tfinger.type = eventType;
+  // TODO: can I re-use time from wayland event?
+  event.tfinger.timestamp = SDL_GetTicks();
+  event.tfinger.touchId = 0;
+  event.tfinger.fingerId = id;
+  event.tfinger.x = wl_fixed_to_double(surface_x) * scale;
+  event.tfinger.y = wl_fixed_to_double(surface_y) * scale;
+  // TODO: is a value required for dx, dy (tilt) and pressure?
+
+  SDL_PeepEvents(&event, 1, SDL_ADDEVENT, 0, 0); //SDL_PushEvent(&event);
+}
+
+static void touchHandlerDown(void *data, struct wl_touch *touch,
+                             uint32_t serial, uint32_t time,
+                             struct wl_surface *surface, int id,
+                             wl_fixed_t x, wl_fixed_t y)
+{
+  struct TouchPoint *point = getTouchPoint(&wlState, id);
+  if (point == NULL) {
+    return;
+  }
+  point->eventMask |= TOUCH_EVENT_DOWN;
+  point->surface_x = x;
+  point->surface_y = y;
+  wlState.touchEvent.time = time;
+  wlState.touchEvent.serial = serial;
+}
+
+static void
+touchHandlerUp(void *data, struct wl_touch *wl_touch, uint32_t serial,
+               uint32_t time, int32_t id)
+{
+  struct TouchPoint *point = getTouchPoint(&wlState, id);
+  if (point == NULL) {
+    return;
+  }
+  point->eventMask |= TOUCH_EVENT_UP;
+}
+
+static void
+touchHandlerMotion(void *data, struct wl_touch *wl_touch, uint32_t time,
+               int32_t id, wl_fixed_t x, wl_fixed_t y)
+{
+  struct TouchPoint *point = getTouchPoint(&wlState, id);
+  if (point == NULL) {
+    return;
+  }
+  point->eventMask |= TOUCH_EVENT_MOTION;
+  point->surface_x = x;
+  point->surface_y = y;
+  wlState.touchEvent.time = time;
+}
+
+static void
+touchHandlerCancel(void *data, struct wl_touch *wl_touch)
+{
+  wlState.touchEvent.cancelled = true;
+}
+
+static void
+touchHandlerFrame(void *data, struct wl_touch *wl_touch)
+{
+  struct TouchEvent *touch = &wlState.touchEvent;
+  const size_t n = sizeof(touch->points) / sizeof(struct TouchPoint);
+
+  for (size_t i = 0; i < n; i++) {
+    struct TouchPoint *point = &touch->points[i];
+    if (!point->valid) {
+      continue;
+    }
+
+    if (point->eventMask & TOUCH_EVENT_DOWN) {
+      reportTouchEvent(SDL_FINGERDOWN, point->id, point->surface_x,
+                       point->surface_y);
+    }
+
+    if (point->eventMask & TOUCH_EVENT_UP) {
+      reportTouchEvent(SDL_FINGERUP, point->id, point->surface_x,
+                       point->surface_y);
+    }
+
+    if (point->eventMask & TOUCH_EVENT_MOTION) {
+      reportTouchEvent(SDL_FINGERMOTION, point->id, point->surface_x,
+                       point->surface_y);
+    }
+
+    if (touch->cancelled) {
+      reportTouchEvent(SVGGUI_FINGERCANCEL, point->id, point->surface_x,
+                       point->surface_y);
+    }
+
+    point->valid = false;
+  }
+  touch->cancelled = false;
+}
+
+static const struct wl_touch_listener touchListener = {
+    .down = touchHandlerDown,
+    .up = touchHandlerUp,
+    .motion = touchHandlerMotion,
+    .frame = touchHandlerFrame,
+    .cancel = touchHandlerCancel,
+};
+
 static void handleSeatCapabilities(void* data, struct wl_seat* seat, 
     uint32_t capabilities)
 {
-  // TODO
+  bool have_touch = capabilities & WL_SEAT_CAPABILITY_TOUCH;
+  if (have_touch && wlState.touch == NULL) {
+    wlState.touch = wl_seat_get_touch(wlState.seat);
+    wl_touch_add_listener(wlState.touch, &touchListener, NULL);
+  } else if (!have_touch && wlState.touch != NULL) {
+    wl_touch_release(wlState.touch);
+    wlState.touch = NULL;
+  }
 }
 
 static void handleSeatName(void* data, struct wl_seat* seat, const char* name)
@@ -361,6 +529,10 @@ int linuxInitWayland(SDL_Window* sdlwin)
   wl_registry_add_listener(registry, &registry_listener, NULL);
 
   wl_display_roundtrip(wmInfo.info.wl.display);
+
+  SDL_EventState(SDL_FINGERDOWN, SDL_DISABLE);
+  SDL_EventState(SDL_FINGERMOTION, SDL_DISABLE);
+  SDL_EventState(SDL_FINGERUP, SDL_DISABLE);
 
   return 0;
 }
