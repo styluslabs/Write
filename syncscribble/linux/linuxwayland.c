@@ -7,15 +7,20 @@
 #include "SDL_version.h"
 #include "tablet-v2.h"
 #include "ugui/svggui_platform.h"
+#include "unistd.h"
 #include "wayland-client-protocol.h"
 #include "SDL_video.h"
 #include "wayland-util.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <errno.h>
 
 #define MAX_TOOLS 32
 #define MAX_TOUCH_POINTS 10
+
+// in ScribbleApp
+extern void clipboardFromBuffer(const unsigned char* buff, size_t len, int is_image);
 
 typedef struct ToolState {
   struct zwp_tablet_tool_v2* tool;
@@ -42,6 +47,16 @@ enum TouchEventMask {
        TOUCH_EVENT_ORIENTATION = 1 << 4,
 };
 
+// sorted by lower to higher priority for clipboard selection
+enum MimeType {
+  // TODO: foot supports TEXT, STRING, UTF8_STRING, what are those??
+  MIME_TYPE_UNSET,
+  MIME_TYPE_TEXT_PLAIN,
+  MIME_TYPE_TEXT_UTF8,
+
+  MIME_TYPE_APP_IMAGE_SVG_XML,
+};
+
 typedef struct TouchPoint {
   bool valid;
   int32_t id;
@@ -65,11 +80,23 @@ typedef struct WlState {
   struct zwp_tablet_manager_v2* tabletManager;
   struct zwp_tablet_seat_v2* tabletSeat;
   struct wl_touch* touch;
+  struct wl_data_device_manager* dataDeviceManager;
+  struct wl_data_device* dataDevice;
+  struct wl_data_offer* dataOffer;
   ToolState tools[MAX_TOOLS];
   TouchEvent touchEvent;
+  enum MimeType clipboardMimeType;
 } WlState;
 
 static WlState wlState = {0};
+
+static const char *const mimeTypeMap[] = {
+  [MIME_TYPE_UNSET] = NULL,
+  [MIME_TYPE_TEXT_PLAIN] = "text/plain",
+  [MIME_TYPE_TEXT_UTF8] = "text/plain;charset=utf-8",
+
+  [MIME_TYPE_APP_IMAGE_SVG_XML] = "application/svg+xml",
+};
 
 static float getDisplayScaleFactor(SDL_Window* window) {
   int displayIdx = SDL_GetWindowDisplayIndex(window);
@@ -472,6 +499,67 @@ static const struct zwp_tablet_seat_v2_listener tabletSeatListener = {
   .pad_added = handlePadAdded,
 };
 
+static enum MimeType readMimeType(const char* mime)
+{
+  size_t len = sizeof(mimeTypeMap) / sizeof (char *);
+  for(size_t i = 0; i < len; i++) {
+    if (mimeTypeMap[i] == NULL)
+      continue;
+
+    if (strcmp(mime, mimeTypeMap[i])) {
+      return i;
+    }
+  }
+
+  return MIME_TYPE_UNSET;
+}
+
+static void dataOfferOffer(void* data, struct wl_data_offer* offer, const char *mime)
+{
+  enum MimeType mimeType = readMimeType(mime);
+
+  if(mimeType == MIME_TYPE_UNSET)
+    return;
+
+  if(wlState.clipboardMimeType < mimeType) {
+    wlState.clipboardMimeType = mimeType;
+  }
+}
+
+static const struct wl_data_offer_listener dataOfferListener = {
+  .offer = dataOfferOffer,
+  .source_actions = NULL,
+  .action = NULL,
+};
+
+static void dataOfferReset()
+{
+  if (wlState.dataOffer) {
+    wl_data_offer_destroy(wlState.dataOffer);
+    wlState.dataOffer = NULL;
+  }
+
+  wlState.clipboardMimeType = MIME_TYPE_UNSET;
+}
+
+static void dataDeviceOffer(void *data, struct wl_data_device* device, struct wl_data_offer* offer)
+{
+  dataOfferReset();
+  wlState.dataOffer = offer;
+  wl_data_offer_add_listener(offer, &dataOfferListener, NULL);
+}
+
+static void dataDeviceSelection(void *data, struct wl_data_device* device, struct wl_data_offer* offer)
+{
+  if(offer == NULL)
+    dataOfferReset();
+}
+
+static const struct wl_data_device_listener dataDeviceListener = {
+  .data_offer = dataDeviceOffer,
+  .selection = dataDeviceSelection,
+};
+
 static void tryAddTabletSeat() {
   if(!wlState.tabletManager || !wlState.seat) {
     return;
@@ -486,6 +574,25 @@ static void tryAddTabletSeat() {
   zwp_tablet_seat_v2_add_listener(wlState.tabletSeat, &tabletSeatListener, NULL);
 }
 
+static void tryAddDataDevice()
+{
+  if(!wlState.seat || !wlState.dataDeviceManager)
+    return;
+
+  if(wlState.dataDevice != NULL) {
+    // TODO: destroy old device + clipboard data?
+    return;
+  }
+
+  struct wl_data_device *dataDevice = wl_data_device_manager_get_data_device(wlState.dataDeviceManager, wlState.seat);
+
+  if (!dataDevice)
+    return;
+
+  wlState.dataDevice = dataDevice;
+  wl_data_device_add_listener(dataDevice, &dataDeviceListener, NULL);
+}
+
 static void registryHandleGlobal(void* data, struct wl_registry* registry, 
     uint32_t name, const char* interface, uint32_t version)
 {
@@ -495,9 +602,13 @@ static void registryHandleGlobal(void* data, struct wl_registry* registry,
     wl_seat_add_listener(wlState.seat, &seatListener, NULL);
 
     tryAddTabletSeat();
+    tryAddDataDevice();
   } else if(strcmp(interface, zwp_tablet_manager_v2_interface.name) == 0) {
     wlState.tabletManager = wl_registry_bind(registry, name, &zwp_tablet_manager_v2_interface, 1);
     tryAddTabletSeat();
+  } else if(strcmp(interface, wl_data_device_manager_interface.name) == 0) {
+    wlState.dataDeviceManager = wl_registry_bind(registry, name, &wl_data_device_manager_interface, 3);
+    tryAddDataDevice();
   }
 }
 
@@ -511,6 +622,107 @@ static const struct wl_registry_listener registry_listener = {
   .global = registryHandleGlobal,
   .global_remove = registryHandleGlobalRemove,
 };
+
+// TODO: replace with c++ or something else
+unsigned char *readAllFromFd(int fd, size_t *out_size)
+{
+  size_t cap = 4096;
+  size_t len = 0;
+
+  unsigned char *buf = malloc(cap);
+  if (!buf)
+    return NULL;
+
+  for (;;) {
+    if (len == cap) {
+      size_t new_cap = cap * 2;
+
+      unsigned char *new_buf = realloc(buf, new_cap);
+      if (!new_buf) {
+        free(buf);
+        return NULL;
+      }
+
+      buf = new_buf;
+      cap = new_cap;
+    }
+
+    ssize_t n = read(fd, buf + len, cap - len);
+
+    if (n < 0) {
+      if (errno == EINTR)
+        continue;
+
+      free(buf);
+      return NULL;
+    }
+
+    if (n == 0)
+      break; // EOF
+
+    len += (size_t)n;
+  }
+
+  unsigned char *new_buf = realloc(buf, len + 1);
+  if (new_buf)
+    buf = new_buf;
+
+  buf[len] = '\0';
+
+  if (out_size)
+    *out_size = len;
+
+  return buf;
+}
+
+static unsigned char *textFromClipboard(size_t *size, enum MimeType* mimeType)
+{
+  if (wlState.dataOffer == NULL || wlState.clipboardMimeType == MIME_TYPE_UNSET) {
+    return NULL;
+  }
+
+  // Prepare a pipe the other client can write its selection to us
+  int fds[2];
+  if (pipe(fds) == -1) {
+    fprintf(stderr, "failed to create pipe");
+    return NULL;
+  }
+
+  // fprintf(stderr, "receive from clipboard: mime-type=%s",
+  //         mimeTypeMap[wlState.clipboardMimeType]);
+
+  int read_fd = fds[0];
+  int write_fd = fds[1];
+
+  *mimeType = wlState.clipboardMimeType;
+
+  // Give write-end of pipe to other client
+  wl_data_offer_receive(wlState.dataOffer, mimeTypeMap[wlState.clipboardMimeType], write_fd);
+
+  // Don't keep our copy of the write-end open (or we'll never get EOF)
+  close(write_fd);
+
+  unsigned char *data = readAllFromFd(read_fd, size);
+  // TODO: error handling
+  close(read_fd);
+  return data;
+}
+
+int requestWlClipboard()
+{
+  size_t size;
+  enum MimeType mimeType;
+  unsigned char *text = textFromClipboard(&size, &mimeType);
+  if(!text)
+    return 0;
+
+  bool img = false;
+  if(mimeType == MIME_TYPE_APP_IMAGE_SVG_XML)
+    img = true;
+
+  clipboardFromBuffer(text, size, img);
+  return 1;
+}
 
 int linuxInitWayland(SDL_Window* sdlwin)
 {

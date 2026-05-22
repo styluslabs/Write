@@ -21,6 +21,10 @@ void clipboardFromBuffer(const unsigned char* buff, size_t len, int is_image) {}
 // in ScribbleApp
 extern void clipboardFromBuffer(const unsigned char* buff, size_t len, int is_image);
 
+// from linuxwayland
+// TODO: restructure somehow
+extern int requestWlClipboard();
+
 // https://github.com/H-M-H/Weylus can be used to send pen input from browser supporting pointer events to
 //  Linux (note that the xinput device won't appear until a client connects to web server)
 
@@ -552,6 +556,8 @@ int requestClipboard(SDL_Window* sdlwin)
 {
   if (XAtoms.valid) {
     return requestXClipboard(sdlwin);
+  } else { // wayland
+    return requestWlClipboard();
   }
   return 0;
 }

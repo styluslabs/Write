@@ -6,8 +6,8 @@ extern "C" {
 #endif
 struct SDL_Window;
 union SDL_Event;
-int linuxInitWayland(struct SDL_Window* sdlwin);
-// int requestClipboard(struct SDL_Window* sdlwin);
+int linuxInitWayland(struct SDL_Window *sdlwin);
+int requestWlClipboard();
 #ifdef __cplusplus
 }
 #endif
