@@ -304,6 +304,20 @@ static const struct zwp_tablet_seat_v2_listener tabletSeatListener = {
   .pad_added = handlePadAdded,
 };
 
+static void tryAddTabletSeat() {
+  if(!wlState.tabletManager || !wlState.seat) {
+    return;
+  }
+
+  if(wlState.tabletSeat) {
+    // TODO: destroy old tablet seat?
+    return;
+  }
+
+  wlState.tabletSeat = zwp_tablet_manager_v2_get_tablet_seat(wlState.tabletManager, wlState.seat);
+  zwp_tablet_seat_v2_add_listener(wlState.tabletSeat, &tabletSeatListener, NULL);
+}
+
 static void registryHandleGlobal(void* data, struct wl_registry* registry, 
     uint32_t name, const char* interface, uint32_t version)
 {
@@ -311,8 +325,11 @@ static void registryHandleGlobal(void* data, struct wl_registry* registry,
     // TODO: multi-seat?
     wlState.seat = wl_registry_bind(registry, name, &wl_seat_interface, 9);
     wl_seat_add_listener(wlState.seat, &seatListener, NULL);
+
+    tryAddTabletSeat();
   } else if(strcmp(interface, zwp_tablet_manager_v2_interface.name) == 0) {
     wlState.tabletManager = wl_registry_bind(registry, name, &zwp_tablet_manager_v2_interface, 1);
+    tryAddTabletSeat();
   }
 }
 
@@ -326,13 +343,6 @@ static const struct wl_registry_listener registry_listener = {
   .global = registryHandleGlobal,
   .global_remove = registryHandleGlobalRemove,
 };
-
-static void initTabletSeat() {
-  if (wlState.tabletManager && wlState.seat) {
-    wlState.tabletSeat = zwp_tablet_manager_v2_get_tablet_seat(wlState.tabletManager, wlState.seat);
-    zwp_tablet_seat_v2_add_listener(wlState.tabletSeat, &tabletSeatListener, NULL);
-  }
-}
 
 int linuxInitWayland(SDL_Window* sdlwin)
 {
@@ -350,12 +360,7 @@ int linuxInitWayland(SDL_Window* sdlwin)
   struct wl_registry* registry = wl_display_get_registry(wmInfo.info.wl.display);
   wl_registry_add_listener(registry, &registry_listener, NULL);
 
-  // do I need this?
   wl_display_roundtrip(wmInfo.info.wl.display);
-
-  initTabletSeat();
-  // TODO: should I force another roundtrip? or call initTabletSeat as soon as
-  // seat and tablet_manager are both available?
 
   return 0;
 }
