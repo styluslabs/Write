@@ -106,8 +106,7 @@ void setupResources()
 #endif
   if(sans && !Painter::loadFont("ui-sans", sans) && !Painter::loadFont("ui-sans", sansBackupPath.c_str())) {
     if(Application::runApplication)
-      /*SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, _("Error"),
-          _("Unable to load fonts.  Please reinstall Write."),  NULL);*/
+      platformMessageBox(_("Error"), _("Unable to load fonts.  Please reinstall Write."));  //SDL_MESSAGEBOX_ERROR
     PLATFORM_LOG("Could not add font sans from %s\n", sans);
   }
   // Also, looks like OTF (cubic beziers) is smaller than TTF (quads), so try to use that for embedded fonts

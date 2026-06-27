@@ -4,6 +4,7 @@
 
 #include "application.h"
 #include "ulib/fileutil.h"
+#include "ulib/stringutil.h"
 //#include "linuxPlatform.h"
 //#include "util/yamlPath.h"
 //#include "util/elevationManager.h"
@@ -50,8 +51,9 @@ struct SDL_Window {
 static SDL_Window xContext;
 
 static struct {
-  Atom absX, absY, absP, tiltX, tiltY, clipboard, imagePng, sdlSel, Incr,
-      UTF8_STRING, STRING, COMPOUND_TEXT, C_STRING, TARGETS;
+  Atom absX, absY, absP, tiltX, tiltY,
+      clipboard, PRIMARY, imagePng, sdlSel, Incr, UTF8_STRING, STRING, COMPOUND_TEXT, C_STRING, TARGETS,
+      xdndEnter, xdndPosition, xdndStatus, xdndActionCopy, xdndDrop, xdndFinished, xdndSelection, textUriList;
 } XAtoms;
 
 void PLATFORM_WakeEventLoop(void)
@@ -163,6 +165,11 @@ int SDL_PeepEvents(SDL_Event* events, int numevents, SDL_eventaction action, Uin
   return numevents;
 }
 
+Uint32 SDL_RegisterEvents(int numevents)
+{
+  static Uint32 nextEvent = SDL_USEREVENT;
+  return std::exchange(nextEvent, nextEvent + numevents);
+}
 
 // https://github.com/H-M-H/Weylus can be used to send pen input from browser supporting pointer events to
 //  Linux (note that the xinput device won't appear until a client connects to web server)
@@ -534,6 +541,7 @@ static void processClipboardXEvent(XEvent* xevent)
 static int linuxInitTablet(Display* xDisplay, Window xWindow)
 {
   XAtoms.clipboard = XInternAtom(xDisplay, "CLIPBOARD", 0);
+  XAtoms.PRIMARY = XInternAtom(xDisplay, "PRIMARY", 0);
   XAtoms.imagePng = XInternAtom(xDisplay, "image/png", 0);
   XAtoms.sdlSel = XInternAtom(xDisplay, "IMAGE_SELECTION", 0);
   XAtoms.Incr = XInternAtom(xDisplay, "INCR", 0);
@@ -622,10 +630,93 @@ void processSelectionRequest(XSelectionRequestEvent* xse)
   XFlush(xContext.dpy);
 }
 
+// Drag and drop
+static Window dragSource = None;
+
+static bool processXDnD(const XClientMessageEvent& cm)
+{
+  static bool canAccept = false;
+  static long dropX = 0, dropY = 0;
+
+  if(cm.message_type == XAtoms.xdndEnter) {
+    dragSource = cm.data.l[0];
+    //int version = cm.data.l[1] >> 24; // XDND version protocol
+    // Check if text/uri-list is supported
+    canAccept = false;
+    if(cm.data.l[1] & 1) { // More than 3 types, read from property instead
+      Atom actualType; int actualFormat; unsigned long nItems, bytesAfter;
+      unsigned char* data = nullptr;
+      XGetWindowProperty(xContext.dpy, dragSource, XInternAtom(xContext.dpy, "XdndTypeList", False),
+                         0, 100, False, XA_ATOM, &actualType, &actualFormat, &nItems, &bytesAfter, &data);
+      Atom* types = (Atom*)data;
+      for(unsigned long i = 0; i < nItems; ++i) {
+        if(types[i] == XAtoms.textUriList) canAccept = true;
+      }
+      if(data) { XFree(data); }
+    }
+    else { // 3 or fewer types are packed directly into data.l[2], l[3], l[4]
+      if(cm.data.l[2] == XAtoms.textUriList || cm.data.l[3] == XAtoms.textUriList || cm.data.l[4] == XAtoms.textUriList) {
+        canAccept = true;
+      }
+    }
+  }
+  else if(cm.message_type == XAtoms.xdndPosition) {
+    // save coords
+    dropX = (cm.data.l[2] >> 16) & 0xFFFF;
+    dropY = cm.data.l[2] & 0xFFFF;
+    // reply to XDND Position with an XdndStatus message
+    XEvent reply;
+    reply.type = ClientMessage;
+    reply.xclient.window = dragSource;
+    reply.xclient.message_type = XAtoms.xdndStatus;
+    reply.xclient.format = 32;
+    reply.xclient.data.l[0] = xContext.win;
+    reply.xclient.data.l[1] = canAccept ? 1 : 0; // 1 = accept, 0 = reject
+    reply.xclient.data.l[2] = 0; // Specify rectangle bounding box if wanted
+    reply.xclient.data.l[3] = 0;
+    reply.xclient.data.l[4] = XAtoms.xdndActionCopy;
+    XSendEvent(xContext.dpy, dragSource, False, NoEventMask, &reply);
+  }
+  else if(cm.message_type == XAtoms.xdndDrop) {
+    if(canAccept) {
+      // update mouse position for drop
+      Window childReturn;
+      int localX = 0, localY = 0;
+      XTranslateCoordinates(xContext.dpy, DefaultRootWindow(xContext.dpy),
+          xContext.win, dropX, dropY, &localX, &localY, &childReturn);
+      SDL_Event event = {0};
+      event.type = SDL_FINGERMOTION;
+      event.tfinger.timestamp = SDL_GetTicks();
+      event.tfinger.touchId = SDL_TOUCH_MOUSEID;
+      event.tfinger.fingerId = 0;
+      event.tfinger.x = localX;
+      event.tfinger.y = localY;
+      SDL_PushEvent(&event);
+      // get the file paths
+      Time time = cm.data.l[2];
+      XConvertSelection(xContext.dpy, XAtoms.xdndSelection,
+          XAtoms.textUriList, XAtoms.PRIMARY, xContext.win, time);
+    }
+    else {  // Reject drop
+      XEvent reply;
+      reply.type = ClientMessage;
+      reply.xclient.window = dragSource;
+      reply.xclient.message_type = XAtoms.xdndFinished;
+      reply.xclient.format = 32;
+      reply.xclient.data.l[0] = xContext.win;
+      reply.xclient.data.l[1] = 0;
+      reply.xclient.data.l[2] = None;
+      XSendEvent(xContext.dpy, dragSource, False, NoEventMask, &reply);
+    }
+  }
+  else { return false; }
+  return true;
+}
+
 // Map X11 KeySym to SDL_Keycode
 static SDL_Keycode keySymToSDLK(KeySym keysym)
 {
-  switch (keysym) {
+  switch(keysym) {
   case XK_0: return SDLK_0;
   case XK_1: return SDLK_1;
   case XK_2: return SDLK_2;
@@ -757,6 +848,7 @@ static void processX11Event(XEvent* xevent)
         XSendEvent(xContext.dpy, reply.xclient.window,
             False, SubstructureNotifyMask | SubstructureRedirectMask, &reply);
       }
+      else if(processXDnD(xevent->xclient)) {}
     }
     break;
   case ConfigureNotify:
@@ -842,6 +934,38 @@ static void processX11Event(XEvent* xevent)
     processSelectionRequest(&xevent->xselectionrequest);
     break;
   case SelectionNotify:
+    if(xevent->xselection.selection == XAtoms.xdndSelection) {
+      if (xevent->xselection.property == None) { break; }
+      Atom actualType; int actualFormat; unsigned long nItems, bytesAfter;
+      unsigned char* data = nullptr;
+      XGetWindowProperty(xContext.dpy, xContext.win, xevent->xselection.property, 0, LONG_MAX, False,
+                         AnyPropertyType, &actualType, &actualFormat, &nItems, &bytesAfter, &data);
+      if (data) {
+        auto lines = splitStr(std::string((char*)data, nItems), "\r\n", true);
+        for(const std::string& line : lines) {
+          if(line.front() == '#') { continue; }
+          SDL_Event event = {0};
+          event.type = SDL_DROPFILE;
+          event.drop.file = strdup(line.c_str());
+          SDL_PushEvent(&event);
+        }
+        XFree(data);
+      }
+      XDeleteProperty(xContext.dpy, xContext.win, xevent->xselection.property);
+
+      // Step 4: Tell the source we are officially finished processing the drop
+      XEvent reply;
+      reply.type = ClientMessage;
+      reply.xclient.window = dragSource;
+      reply.xclient.message_type = XAtoms.xdndFinished;
+      reply.xclient.format = 32;
+      reply.xclient.data.l[0] = xContext.win;
+      reply.xclient.data.l[1] = 1; // Success flag
+      reply.xclient.data.l[2] = XAtoms.xdndActionCopy;
+      XSendEvent(xContext.dpy, dragSource, False, NoEventMask, &reply);
+      break;
+    }
+    // fall-through to handle clipboard
   case PropertyNotify:
     processClipboardXEvent(xevent);
     break;
@@ -1009,7 +1133,7 @@ void Application::drawFrame()
 
 //extern int SDL_main(int argc, char* argv[]);
 
-int Application::platformSetup(const char* wintitle, const char* winclass, SDL_Rect winrect)
+int Application::platformSetup(const char* wintitle, const char* winclass, WindowPos winrect)
 {
   //initBaseDir(argc > 0 ? argv[0] : NULL);
   /*
@@ -1068,6 +1192,19 @@ int Application::platformSetup(const char* wintitle, const char* winclass, SDL_R
       xVisual->depth, InputOutput, xVisual->visual, CWBackPixel | CWEventMask | CWColormap, &winSetAttrs);
   xContext.win = xWin;
 
+  // drag and drop support
+  Atom xdndVersion = 5;
+  XChangeProperty(xDpy, xWin, XInternAtom(xDpy, "XdndAware", False),
+      XA_ATOM, 32, PropModeReplace, (unsigned char*)&xdndVersion, 1);
+  XAtoms.xdndEnter      = XInternAtom(display, "XdndEnter", False);
+  XAtoms.xdndPosition   = XInternAtom(display, "XdndPosition", False);
+  XAtoms.xdndStatus     = XInternAtom(display, "XdndStatus", False);
+  XAtoms.xdndActionCopy = XInternAtom(display, "XdndActionCopy", False);
+  XAtoms.xdndDrop       = XInternAtom(display, "XdndDrop", False);
+  XAtoms.xdndFinished   = XInternAtom(display, "XdndFinished", False);
+  XAtoms.xdndSelection  = XInternAtom(display, "XdndSelection", False);
+  XAtoms.textUriList    = XInternAtom(display, "text/uri-list", False);
+
   // set WM_CLASS so window is associated with correct launcher icon
   const char* res_name = winclass;  //"Ascend";
   const char* res_class = winclass;  //"Ascend";
@@ -1079,10 +1216,10 @@ int Application::platformSetup(const char* wintitle, const char* winclass, SDL_R
   // set _NET_WM_PID and _NET_WM_WINDOW_TYPE
   pid_t pid = getpid();
   XChangeProperty(xDpy, xWin, XInternAtom(xDpy, "_NET_WM_PID", False),
-      XInternAtom(xDpy, "CARDINAL", False), 32, PropModeReplace, (unsigned char *)&pid, 1);
+      XInternAtom(xDpy, "CARDINAL", False), 32, PropModeReplace, (unsigned char*)&pid, 1);
   Atom NET_WM_WINDOW_TYPE_NORMAL = XInternAtom(xDpy, "_NET_WM_WINDOW_TYPE_NORMAL", False);
   XChangeProperty(xDpy, xWin, XInternAtom(xDpy, "_NET_WM_WINDOW_TYPE", False),
-      XA_ATOM, 32, PropModeReplace, (unsigned char *)&NET_WM_WINDOW_TYPE_NORMAL, 1);
+      XA_ATOM, 32, PropModeReplace, (unsigned char*)&NET_WM_WINDOW_TYPE_NORMAL, 1);
 
   // set WM_NAME (window title)
   //XStoreName(xDpy, xWin, "Ascend Maps");
@@ -1155,6 +1292,8 @@ int Application::platformSetup(const char* wintitle, const char* winclass, SDL_R
   //int depth = DefaultDepth(xDpy, mainScr);
   //XShmSegmentInfo shminfo;
   //XImage* xImg = NULL;
+  return 0;
+}
 
   /*
   // MapsApp setup
@@ -1266,22 +1405,225 @@ int Application::platformSetup(const char* wintitle, const char* winclass, SDL_R
 */
 
   //int res = SDL_main(argc, argv);
-}
+
 
 void Application::platformClose()
 {
-  glXMakeCurrent(xContext.dpy, None, NULL);
+  auto xDpy = xContext.dpy;
+  auto xWin = xContext.win;
+  glXMakeCurrent(xDpy, None, NULL);
   //  offscreenWorker = std::move(Tangram::ElevationManager::offscreenWorker);
   //  if(offscreenWorker) {
   //    offscreenWorker->enqueue([=](){ glXMakeCurrent(xDpy, None, NULL); });
   //    offscreenWorker->waitForCompletion();
   //    offscreenWorker.reset();  // wait for thread exit
   //  }
-
   if(xContext.img)
-    deleteShmImage(xContext.dpy, xContext.img, &shminfo);
+    deleteShmImage(xDpy, xContext.img, &shminfo);
 
-  XCloseDisplay(xContext.dpy);
+  XCloseDisplay(xDpy);
+}
 
-  //return res;
+Application::WindowPos Application::platformGetWindowPos()
+{
+  XWindowAttributes winAttrs;
+  XGetWindowAttributes(xContext.dpy, xContext.win, &winAttrs);
+  return WindowPos{winAttrs.x, winAttrs.y, winAttrs.width, winAttrs.height, 0, 0};
+}
+
+#include <X11/Xcursor/Xcursor.h>
+
+void setCursor(Cursor cursor)
+{
+  XDefineCursor(xContext.dpy, xContext.win, cursor);
+  XFlush(xContext.dpy);
+
+  //XUndefineCursor(xContext.dpy, xContext.win) or XDefineCursor(xContext.dpy, xContext.win, None) to restore system cursor
+  //transparent image to hide cursor
+}
+
+struct PlatformCursor {
+  PlatformCursor(const Image* image, int hot_x, int hot_y);
+  ~PlatformCursor() { XFreeCursor(xContext.dpy, cursor); }
+  Cursor cursor;
+};
+
+PlatformCursor platformCreateCursor(const Image* image, int hot_x, int hot_y)
+{
+  XcursorImage* cursorImage = XcursorImageCreate(image->width, image->height);
+  if(!cursorImage) { return; }
+  cursorImage->xhot = hot_x;
+  cursorImage->yhot = hot_y;
+  cursorImage->delay = 0; // Only used for animated cursors
+  memcpy(cursorImage->pixels, image->constPixels(), image->dataLen());
+  Cursor cursor = XcursorImageLoadCursor(xContext.dpy, cursorImage);
+  XcursorImageDestroy(cursorImage);
+  return PlatformCursor{cursor};
+
+
+  // where to free cursor?
+  //XFreeCursor(xContext.dpy, cursor);
+}
+
+#define _NET_WM_STATE_REMOVE        0
+#define _NET_WM_STATE_ADD           1
+#define _NET_WM_STATE_TOGGLE        2
+
+// Helper function to send the EWMH state message
+static bool SendWMStateMessage(Display* display, Window window, long action)
+{
+  if(!display || window == None) { return false; }
+  Atom wmState = XInternAtom(display, "_NET_WM_STATE", False);
+  Atom wmFullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
+  if(wmState == None || wmFullscreen == None) { return false; }
+
+  XEvent xev;
+  memset(&xev, 0, sizeof(xev));
+  xev.type = ClientMessage;
+  xev.xclient.window = window;
+  xev.xclient.message_type = wmState;
+  xev.xclient.format = 32;
+  xev.xclient.data.l[0] = action;         // Remove, Add, or Toggle
+  xev.xclient.data.l[1] = wmFullscreen;   // Target state
+  xev.xclient.data.l[3] = 1;              // Source indication
+
+  Status status = XSendEvent(display, DefaultRootWindow(display),
+      False, SubstructureRedirectMask | SubstructureNotifyMask, &xev);
+
+  XFlush(display);
+  return status != 0;
+}
+
+void platformSetFullscreen(bool enable)
+{
+  SendWMStateMessage(xContext.dpy, xContext.win, enable ? _NET_WM_STATE_ADD : _NET_WM_STATE_REMOVE);
+}
+
+// no simple X11 API to show a message box; only needed for errors initializing OpenGL or ugui
+void platformMessageBox(std::string title, std::string msg)
+{
+  std::string cmd = "xmessage -center -title " + title + " " + msg;
+  system(cmd.c_str());
+}
+
+// On Windows:
+//void ShowWindowsMessageBox(HWND parent, std::string title, std::string msg)
+//{
+//  MessageBoxA(parent, msg.c_str(), title.c_str(), MB_OK | MB_ICONINFORMATION);
+//}
+
+// will need to move this to something like svggui_platform.cpp (or just into Write)
+const char* SDL_GetKeyName(SDL_Keycode key)
+{
+  switch (key) {
+    case SDLK_BACKSPACE: return "Backspace";
+    case SDLK_TAB: return "Tab";
+    case SDLK_RETURN: return "Return";
+    case SDLK_ESCAPE: return "Escape";
+    case SDLK_SPACE: return " ";
+
+    case SDLK_EXCLAIM: return "!";
+    case SDLK_QUOTEDBL: return "\"";
+    case SDLK_HASH: return "#";
+    case SDLK_DOLLAR: return "$";
+    case SDLK_PERCENT: return "%";
+    case SDLK_AMPERSAND: return "&";
+    case SDLK_QUOTE: return "'";
+    case SDLK_LEFTPAREN: return "(";
+    case SDLK_RIGHTPAREN: return ")";
+    case SDLK_ASTERISK: return "*";
+    case SDLK_PLUS: return "+";
+    case SDLK_COMMA: return ",";
+    case SDLK_MINUS: return "-";
+    case SDLK_PERIOD: return ".";
+    case SDLK_SLASH: return "/";
+
+    case SDLK_0: return "0";
+    case SDLK_1: return "1";
+    case SDLK_2: return "2";
+    case SDLK_3: return "3";
+    case SDLK_4: return "4";
+    case SDLK_5: return "5";
+    case SDLK_6: return "6";
+    case SDLK_7: return "7";
+    case SDLK_8: return "8";
+    case SDLK_9: return "9";
+
+    case SDLK_COLON: return ":";
+    case SDLK_SEMICOLON: return ";";
+    case SDLK_LESS: return "<";
+    case SDLK_EQUALS: return "=";
+    case SDLK_GREATER: return ">";
+    case SDLK_QUESTION: return "?";
+    case SDLK_AT: return "@";
+
+    case SDLK_a: return "A";
+    case SDLK_b: return "B";
+    case SDLK_c: return "C";
+    case SDLK_d: return "D";
+    case SDLK_e: return "E";
+    case SDLK_f: return "F";
+    case SDLK_g: return "G";
+    case SDLK_h: return "H";
+    case SDLK_i: return "I";
+    case SDLK_j: return "J";
+    case SDLK_k: return "K";
+    case SDLK_l: return "L";
+    case SDLK_m: return "M";
+    case SDLK_n: return "N";
+    case SDLK_o: return "O";
+    case SDLK_p: return "P";
+    case SDLK_q: return "Q";
+    case SDLK_r: return "R";
+    case SDLK_s: return "S";
+    case SDLK_t: return "T";
+    case SDLK_u: return "U";
+    case SDLK_v: return "V";
+    case SDLK_w: return "W";
+    case SDLK_x: return "X";
+    case SDLK_y: return "Y";
+    case SDLK_z: return "Z";
+
+    case SDLK_LEFTBRACKET: return "[";
+    case SDLK_BACKSLASH: return "\\";
+    case SDLK_RIGHTBRACKET: return "]";
+    case SDLK_CARET: return "^";
+    case SDLK_UNDERSCORE: return "_";
+    case SDLK_BACKQUOTE: return "`";
+
+    case SDLK_DELETE: return "Delete";
+
+    case SDLK_F1: return "F1";
+    case SDLK_F2: return "F2";
+    case SDLK_F3: return "F3";
+    case SDLK_F4: return "F4";
+    case SDLK_F5: return "F5";
+    case SDLK_F6: return "F6";
+    case SDLK_F7: return "F7";
+    case SDLK_F8: return "F8";
+    case SDLK_F9: return "F9";
+    case SDLK_F10: return "F10";
+    case SDLK_F11: return "F11";
+    case SDLK_F12: return "F12";
+
+    case SDLK_PRINTSCREEN: return "PrintScreen";
+    case SDLK_SCROLLLOCK: return "ScrollLock";
+    case SDLK_PAUSE: return "Pause";
+    case SDLK_INSERT: return "Insert";
+    case SDLK_HOME: return "Home";
+    case SDLK_PAGEUP: return "PageUp";
+    case SDLK_END: return "End";
+    case SDLK_PAGEDOWN: return "PageDown";
+    case SDLK_RIGHT: return "Right";
+    case SDLK_LEFT: return "Left";
+    case SDLK_DOWN: return "Down";
+    case SDLK_UP: return "Up";
+
+    case SDLK_NUMLOCKCLEAR: return "NumLockClear";
+    case SDLK_CAPSLOCK: return "CapsLock";
+
+    case SDLK_APPLICATION: return "Application";
+
+    default: return "Unknown";
+  }
 }

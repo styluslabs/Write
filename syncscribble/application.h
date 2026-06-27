@@ -32,7 +32,9 @@ public:
   static void drawFrame();
   static void setSWFramebuffer(void* dest, int w, int h, int rshift, int gshift, int bshift, int ashift);
 
-  static int platformSetup(const char* wintitle, const char* winclass, SDL_Rect winrect);
+  struct WindowPos { int x, y, w, h, maximized, display; };
+  static int platformSetup(const char* wintitle, const char* winclass, WindowPos winrect);
+  static WindowPos platformGetWindowPos();
   static void platformClose();
 
 //private:

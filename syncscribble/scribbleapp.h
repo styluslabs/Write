@@ -146,6 +146,14 @@ public:
   enum scribbleSDLEventCode {INSERT_IMAGE=1, UPDATE_CHECK,
       STORAGE_PERMISSION, DISMISS_DIALOG, SIMULATE_PEN_BTN, IAP_COMPLETE, APP_SUSPEND};
 
+#if !PLATFORM_MOBILE
+  //static bool staticInited;
+  struct PlatformCursor;
+  std::unique_ptr<PlatformCursor> penCursor;
+  std::unique_ptr<PlatformCursor> panCursor;
+  std::unique_ptr<PlatformCursor> eraseCursor;
+#endif
+
   ScribbleArea* activeArea() const { return mActiveArea; }
   ScribbleDoc* activeDoc() const;
   void setActiveArea(ScribbleArea* area);
