@@ -229,12 +229,6 @@ protected:
 
   // experimental feature to select N most recent strokes
   int recentStrokeSelPos = -1;
-#if !PLATFORM_MOBILE
-  static bool staticInited;
-  static std::unique_ptr<SDL_Cursor, SDL_Cursor_Deleter> penCursor;
-  static std::unique_ptr<SDL_Cursor, SDL_Cursor_Deleter> panCursor;
-  static std::unique_ptr<SDL_Cursor, SDL_Cursor_Deleter> eraseCursor;
-#endif
   // some constants
   static const Dim ERASESTROKE_RADIUS;
   static const Dim ERASEFREE_RADIUS;

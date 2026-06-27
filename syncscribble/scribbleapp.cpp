@@ -173,7 +173,7 @@ ScribbleApp::ScribbleApp(int argc, char* argv[])
 
 void ScribbleApp::init()
 {
-  scribbleSDLEvent = 0x9FC1;  //SDL_RegisterEvents(1);
+  scribbleSDLEvent = SDL_RegisterEvents(1);
   // Default pens
   auto dflttip = ScribblePen::TIP_FLAT | ScribblePen::WIDTH_PR;
   switch(std::max(0, 8 - int(cfg->pens.size()))) {
@@ -858,7 +858,7 @@ bool ScribbleApp::keyPressEvent(SDL_Event* event)
 #endif
       if(mods & KMOD_ALT) { keystr.append("Alt+"); }
       if(mods & KMOD_SHIFT) { keystr.append("Shift+"); }
-      //keystr.append(SDL_GetKeyName(event->key.keysym.sym));
+      keystr.append(SDL_GetKeyName(event->key.keysym.sym));
       auto it = win->shortcuts.find(keystr);
       if(it != win->shortcuts.end()) {
         if(it->second && it->second->enabled())
@@ -1044,13 +1044,9 @@ void ScribbleApp::dropEvent(SDL_Event* event)
       SvgDocument* svgdoc = SvgParser().parseFile(fileinfo.c_str());
       Clipboard* clip = svgdoc ? importExternalDoc(svgdoc) : NULL;
       if(clip) {
-        // can we get drop event on Android?  if so, how to handle this?
-        int x, y, x0, y0;
-        //SDL_GetGlobalMouseState(&x, &y);
-        SDL_GetWindowPosition(win->sdlWindow, &x0, &y0);
         // offset.isNan() selects PasteCenter instead of PasteOrigin
         clip->content->addClass("external");
-        activeArea()->clipboardDropped(clip, Point(x - x0, y - y0)*gui->inputScale, Point(NaN, NaN));
+        activeArea()->clipboardDropped(clip, gui->prevFingerPos, Point(NaN, NaN));
         delete clip;
         return;
       }

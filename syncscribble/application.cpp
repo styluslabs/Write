@@ -130,10 +130,10 @@ std::string Application::appDir;
 
 static int nvglFBFlags = 0;
 static NVGLUframebuffer* nvglFB = NULL;
-static void* swFB = NULL;
-#if USE_GL_BLITTER
-static NVGSWUblitter* swBlitter = NULL;
-#endif
+//static void* swFB = NULL;
+//#if USE_GL_BLITTER
+//static NVGSWUblitter* swBlitter = NULL;
+//#endif
 
 // thread pool for nanovgXC SW renderer
 static ThreadPool* swThreadPool = NULL;
@@ -306,15 +306,16 @@ int main(int argc, char* argv[])
 //#endif
 
   bool sRGB = ScribbleApp::cfg->Bool("sRGB");
-  int nvgFlags = NVG_AUTOW_DEFAULT | (sRGB ? NVG_SRGB : 0) | NVG_NO_FONTSTASH;
+  //int nvgFlags = NVG_AUTOW_DEFAULT | (sRGB ? NVG_SRGB : 0) | NVG_NO_FONTSTASH;
   nvglFBFlags = sRGB ? NVG_IMAGE_SRGB : 0;
-#if PLATFORM_MOBILE
-  if(sRGB)
-    SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);  // needed for sRGB on iOS and Android
-#endif
+//#if PLATFORM_MOBILE
+//  if(sRGB)
+//    SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);  // needed for sRGB on iOS and Android
+//#endif
 
-  SDL_Rect dispBounds;
   auto winGeom = parseNumbersList(ScribbleApp::cfg->String("windowState", ""), 6);
+  if(winGeom.size() < 6) { winGeom = { 0, 0, 0, 0, 0, 0 }; }
+  /*SDL_Rect dispBounds;
   int dispIdx = 0;  //winGeom.size() < 6 || winGeom[5] >= SDL_GetNumVideoDisplays() ? 0 : winGeom[5];
   SDL_GetDisplayBounds(dispIdx, &dispBounds);
   if(winGeom.size() < 5 || winGeom[0] > dispBounds.w
@@ -322,17 +323,17 @@ int main(int argc, char* argv[])
     winGeom = { 100, 100, 800, 800, 1, 0 };
   Uint32 winMaxFlag = (winGeom[4] || PLATFORM_EMSCRIPTEN) ? SDL_WINDOW_MAXIMIZED : 0;
   winGeom[0] += dispBounds.x;
-  winGeom[1] += dispBounds.y;
-  SDL_Rect winrect = {int(winGeom[0]), int(winGeom[1]), int(winGeom[2]), int(winGeom[3])};
-
+  winGeom[1] += dispBounds.y; */
+  Application::WindowPos winrect =
+      {int(winGeom[0]), int(winGeom[1]), int(winGeom[2]), int(winGeom[3]), int(winGeom[4]), int(winGeom[5])};
   int ret = Application::platformSetup("Write", "Write", winrect);
   if(ret) { return ret; }
 
-  SDL_Window* sdlWindow = Application::sdlWindow;
-  //SDL_GLContext sdlContext = NULL;
-  NVGcontext* nvgContext = NULL;
+  //SDL_Window* sdlWindow = Application::sdlWindow;
 
 /*
+  SDL_GLContext sdlContext = NULL;
+  NVGcontext* nvgContext = NULL;
   // mac and emscripten always use SW renderer
 #if !PLATFORM_OSX && !PLATFORM_EMSCRIPTEN
   if(ScribbleApp::cfg->Int("glRender")) {
@@ -386,34 +387,7 @@ int main(int argc, char* argv[])
   }  // /useGL
 #endif
   Application::glRender = nvgContext != NULL;
-*/
 
-  if(1) {
-
-  bool glLoadOK = true;
-  int cfgFlags = ScribbleApp::cfg->Int("nvgGlFlags", 0);
-#if PLATFORM_DESKTOP && !USE_NANOVG_VTEX
-  if(!cfgFlags) cfgFlags |= NVGL_NO_FB_FETCH;
-#endif
-  nvgContext = glLoadOK ? nvglCreate(nvgFlags | cfgFlags | (SCRIBBLE_DEBUG ? NVGL_DEBUG : 0)) : NULL;
-  Application::glRender = nvgContext != NULL;
-
-  } else  {
-
-  nvgContext = nvgswCreate(nvgFlags);
-  int ncores = std::thread::hardware_concurrency();
-  int nthreads = (ncores > 0 ? ncores : 4);  //(PLATFORM_MOBILE ? 1 : 2) -- hyperthreading incl on Windows
-//#if !IS_DEBUG
-  if(nthreads > 1) {
-    swThreadPool = new ThreadPool(nthreads);
-    nvgswSetThreading(nvgContext, nthreads/2, 2, poolSubmit, poolWait);
-  }
-//#endif
-
-  }
-
-
-/*
   // create SW window and nanovg-2 SW renderer if GL didn't work
   if(!nvgContext) {
 //#if PLATFORM_ANDROID
@@ -469,14 +443,30 @@ int main(int argc, char* argv[])
 
   //painter.reset(new Painter(Painter::PAINT_GL | Painter::CACHE_IMAGES | Painter::ALIGN_SCISSOR));  //Painter::PAINT_SW | Painter::SW_BLIT_GL
   Painter::initFontStash(FONS_DELAY_LOAD | FONS_SUMMED);
-  nvgSetFontStash(nvgContext, Painter::fontStash);
-  Painter* painter = new Painter(nvgContext);
-  Painter::cachingPainter = painter;
+  //nvgSetFontStash(nvgContext, Painter::fontStash);
+  fonsInternalParams(Painter::fontStash)->notDefCodePt = 0xFE56;
+
+  Painter* painter = new Painter(
+        (ScribbleApp::cfg->Int("glRender") ? Painter::PAINT_GL : Painter::PAINT_SW) |
+        Painter::SW_FALLBACK | Painter::CACHE_IMAGES | (sRGB ? Painter::SRGB_AWARE : 0) |
+        (SCRIBBLE_DEBUG ? Painter::PAINT_DEBUG_GL : 0) | (USE_GL_BLITTER ? Painter::SW_BLIT_GL : 0));
+  //Painter::cachingPainter = painter;
   Application::painter = painter;
+  Application::glRender = painter->usesGPU();
   if(Application::glRender) {  //useFramebuffer
-    nvglFB = nvgluCreateFramebuffer(nvgContext, 0, 0, NVGLU_NO_NVG_IMAGE | nvglFBFlags);
+    nvglFB = nvgluCreateFramebuffer(painter->vg, 0, 0, NVGLU_NO_NVG_IMAGE | nvglFBFlags);
     if(sRGB)
       nvgluSetFramebufferSRGB(1);  // no-op for GLES - sRGB enabled iff FB is sRGB
+  }
+  else {
+    int ncores = std::thread::hardware_concurrency();
+    int nthreads = (ncores > 0 ? ncores : 4);  //(PLATFORM_MOBILE ? 1 : 2) -- hyperthreading incl on Windows
+  //#if !IS_DEBUG
+    if(nthreads > 1) {
+      swThreadPool = new ThreadPool(nthreads);
+      nvgswSetThreading(painter->vg, nthreads/2, 2, poolSubmit, poolWait);
+    }
+  //#endif
   }
 
   Painter boundsPainter(Painter::PAINT_NULL);
@@ -506,13 +496,12 @@ int main(int argc, char* argv[])
 #endif
 
   // save window state
-  int winMax = 0, winX = 0, winY = 0, winW = 0, winH = 0;
   /*
+  int winMax = 0, winX = 0, winY = 0, winW = 0, winH = 0;
   Uint32 winstate = SDL_GetWindowFlags(sdlWindow);
   winMax = winstate & SDL_WINDOW_MAXIMIZED ? 1 : 0;
   if(winMax)
     SDL_RestoreWindow(sdlWindow);
-  */
   // we could get size from SvgGui winBounds, but we have to get position from SDL anyway
   dispIdx = SDL_GetWindowDisplayIndex(sdlWindow);
   SDL_GetDisplayBounds(dispIdx, &dispBounds);
@@ -520,12 +509,17 @@ int main(int argc, char* argv[])
   SDL_GetWindowSize(sdlWindow, &winW, &winH);
   ScribbleApp::cfg->set("windowState", fstring("%d %d %d %d %d %d",
       winX - dispBounds.x, winY - dispBounds.y, winW, winH, winMax, dispIdx).c_str());
+  */
 
 #if IS_DEBUG && !PLATFORM_MOBILE
 //  SDL_HideWindow(sdlWindow);
   if(Application::glRender)
     SCRIBBLE_LOG("\n**** RUNNING TESTS ****\n%s\n", scribbleApp->runTest("test").c_str());
 #endif
+
+  auto winpos = Application::platformGetWindowPos();
+  ScribbleApp::cfg->set("windowState", fstring("%d %d %d %d %d %d",
+      winpos.x, winpos.y, winpos.w, winpos.h, winpos.maximized, winpos.display).c_str());
 
   delete scribbleApp;
   delete svgGui;
@@ -536,11 +530,11 @@ int main(int argc, char* argv[])
     delete swThreadPool;
 //  if(sdlContext)
 //    SDL_GL_DeleteContext(sdlContext);
-#if USE_GL_BLITTER
-  nvgswuDeleteBlitter(swBlitter);
-  free(swFB);
-  swFB = NULL;  // SDL_main can be called again on Android(!)
-#endif
+//#if USE_GL_BLITTER
+//  nvgswuDeleteBlitter(swBlitter);
+//  free(swFB);
+//  swFB = NULL;  // SDL_main can be called again on Android(!)
+//#endif
   Application::platformClose();  //  SDL_Quit();
   unet_terminate();
   return 0;
