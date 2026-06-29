@@ -20,16 +20,6 @@ const Dim ScribbleArea::MIN_CURSOR_RADIUS = 2;
 const Color ScribbleArea::BACKGROUND_COLOR = 0xFF444444;
 
 Image* ScribbleArea::watermark = NULL;
-//#if !PLATFORM_MOBILE
-//bool ScribbleArea::staticInited = false;
-////struct SDL_Cursor_Deleter { void operator()(void* x) { if(x) SDL_FreeCursor(static_cast<SDL_Cursor*>(x)); } };
-////std::unique_ptr<SDL_Cursor, SDL_Cursor_Deleter> ScribbleArea::penCursor;
-////std::unique_ptr<SDL_Cursor, SDL_Cursor_Deleter> ScribbleArea::panCursor;
-////std::unique_ptr<SDL_Cursor, SDL_Cursor_Deleter> ScribbleArea::eraseCursor;
-//std::unique_ptr<PlatformCursor> ScribbleArea::penCursor;
-//std::unique_ptr<PlatformCursor> ScribbleArea::panCursor;
-//std::unique_ptr<PlatformCursor> ScribbleArea::eraseCursor;
-//#endif
 
 ScribbleArea::ScribbleArea() : ScribbleView()
 {
@@ -37,6 +27,21 @@ ScribbleArea::ScribbleArea() : ScribbleView()
   posHistoryPos = posHistory.begin();
   // always need hover events to check for mouse motion so we can reset cursor to default
   scribbleInput->enableHoverEvents = true;
+}
+
+// render SVG string to Image
+static Image svgToImage(const SvgDocument* doc, Dim scale = 1)
+{
+  int w = std::ceil(doc->width().px()*scale), h = std::ceil(doc->height().px()*scale);
+  Image img(w, h);
+  Painter painter(Painter::PAINT_SW | Painter::NO_TEXT, &img);
+  painter.setBackgroundColor(::Color::INVALID_COLOR);  // skip BG since image already inited to zeros
+  painter.beginFrame();
+  painter.translate(0, h);
+  painter.scale(1, -1);
+  SvgPainter(&painter).drawNode(doc);  //, dirty);
+  painter.endFrame();
+  return img;
 }
 
 // Members that are affected by config values get set here.  Right now, these are just config values that are
@@ -60,8 +65,7 @@ void ScribbleArea::loadConfig(ScribbleConfig* _cfg)
   RectSelector::HANDLE_PAD = cfg->Int("singleTouchMode") == INPUTMODE_DRAW ? 8 : 4;
 
 #if !PLATFORM_MOBILE
-  if(!app->penCursor) {  //staticInited) {
-    //staticInited = true;
+  if(!app->penCursor) {
     // cursors
     const Dim penradius = MIN_CURSOR_RADIUS/unitsPerPx;
     const Dim eraserradius = ERASESTROKE_RADIUS/unitsPerPx;
@@ -74,11 +78,7 @@ void ScribbleArea::loadConfig(ScribbleConfig* _cfg)
     penpaint.setFillBrush(Color::BLACK);
     penpaint.drawPath(Path2D().addEllipse(penradius + 1, penradius + 1, penradius+0.5, penradius+0.5));
     penpaint.endFrame();
-    penCursor.reset(platformCreateCursor(penimg, int(penradius + 1.5), int(penradius + 1.5)));
-//    SDL_Surface* pensurf = SDL_CreateRGBSurfaceFrom((void*)penimg.bytes(),
-//        penimg.width, penimg.height, 32, 4*penimg.width, Color::R, Color::G, Color::B, Color::A);
-//    penCursor.reset(SDL_CreateColorCursor(pensurf, int(penradius + 1.5), int(penradius + 1.5)));
-//    SDL_FreeSurface(pensurf);
+    app->penCursor = platformCreateCursor(&penimg, int(penradius + 1.5), int(penradius + 1.5));
 
     Image eraserimg(int(2*eraserradius + 3), int(2*eraserradius + 3));
     Painter eraserpaint(Painter::PAINT_SW | Painter::NO_TEXT, &eraserimg);
@@ -90,13 +90,14 @@ void ScribbleArea::loadConfig(ScribbleConfig* _cfg)
     eraserpaint.setStrokeWidth(1);
     eraserpaint.drawPath(Path2D().addEllipse(eraserradius + 1, eraserradius + 1, eraserradius, eraserradius));
     eraserpaint.endFrame();
-    eraseCursor.reset(platformCreateCursor(eraserimg, int(eraserradius + 1.5), int(eraserradius + 1.5)));
-//    SDL_Surface* erasersurf = SDL_CreateRGBSurfaceFrom((void*)eraserimg.bytes(),
-//        eraserimg.width, eraserimg.height, 32, 4*eraserimg.width, Color::R, Color::G, Color::B, Color::A);
-//    eraseCursor.reset(SDL_CreateColorCursor(erasersurf, int(eraserradius + 1.5), int(eraserradius + 1.5)));
-//    SDL_FreeSurface(erasersurf);
+    app->eraseCursor = platformCreateCursor(&eraserimg, int(eraserradius + 1.5), int(eraserradius + 1.5));
 
-    //panCursor.reset(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_HAND));
+    Image panimg = svgToImage(SvgGui::useFile(":/icons/ic_menu_pan.svg"));
+    app->panCursor = platformCreateCursor(&panimg, panimg.width/2, panimg.height/2);
+
+    unsigned char blankdata[4] = {0,0,0,0};
+    Image blankimg = Image::fromPixels(1, 1, blankdata);
+    app->blankCursor = platformCreateCursor(&blankimg, 0, 0);
   }
 #endif
 #ifdef SCRIBBLE_IAP
@@ -2438,7 +2439,7 @@ void ScribbleArea::doMotionEvent(const InputEvent& event, inputevent_t eventtype
         platformSetCursor(app->eraseCursor.get());
       else
         platformSetCursor(NULL);  //SDL_GetDefaultCursor());
-      SDL_ShowCursor(SDL_ENABLE);
+      //SDL_ShowCursor(SDL_ENABLE);
     }
 #endif
   }

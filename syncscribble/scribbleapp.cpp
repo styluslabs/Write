@@ -20,6 +20,7 @@
 #include "usvg/pdfwriter.h"
 #include "ulib/unet.h"
 #include "usvg/svgparser.h"
+#include "ugui/svggui_util.h"
 #if PLATFORM_WIN
 #include "windows/winhelper.h"
 #include <shellapi.h>  // for ShellExecute for openUrl
@@ -1302,11 +1303,7 @@ void ScribbleApp::getScreenPageDims(int* w, int* h)
 //  int screenh = androiddims & 0x0000FFFF;
 //#else
   SDL_Rect r;
-#if PLATFORM_IOS
-  SDL_GL_GetDrawableSize(sdlWindow, &r.w, &r.h);
-#else
-  SDL_GetDisplayBounds(std::max(0, SDL_GetWindowDisplayIndex(sdlWindow)), &r);  // or SDL_GetDisplayUsableBounds
-#endif
+  SDL_GetDisplayBounds(0, &r);  // or SDL_GetDisplayUsableBounds
   // 0,0 page size causes problems (e.g. errors loading doc)
   r.w = std::max(200, r.w);
   r.h = std::max(200, r.h);
@@ -1995,7 +1992,7 @@ void ScribbleApp::populateRecentFiles()
     return;
 
   SDL_Rect screenrect;
-  SDL_GetDisplayBounds(std::max(0, SDL_GetWindowDisplayIndex(sdlWindow)), &screenrect);  // or SDL_GetDisplayUsableBounds
+  SDL_GetDisplayBounds(0, &screenrect);  // or SDL_GetDisplayUsableBounds
   int maxwidth = 0.75*MIN(screenrect.w, screenrect.h);
   for(size_t ii = 0; ii < recentDocs.size(); ++ii) {
     if(recentFileActions.size() <= ii) {

@@ -201,8 +201,8 @@ void Application::setupUIScale(float horzdpi)
   int winWidth, winHeight;
   SDL_GetWindowSize(sdlWindow, &winWidth, &winHeight);
   int fbWidth = winWidth, fbHeight = winHeight;
-  if(glRender || USE_GL_BLITTER)
-    SDL_GL_GetDrawableSize(sdlWindow, &fbWidth, &fbHeight);
+  //if(glRender || USE_GL_BLITTER)
+  //  SDL_GL_GetDrawableSize(sdlWindow, &fbWidth, &fbHeight);
 
 #if PLATFORM_IOS
   // SDL sets UIWindow.contentScaleFactor to UIScreen.nativeScale to use actual screen res on iPhone Plus, so
@@ -224,8 +224,7 @@ void Application::setupUIScale(float horzdpi)
     //horzdpi = 168*horzdpi/96;
     //if(horzdpi <= 125) { // 72, 96, and 120 are common garbage values returned by Windows
       SDL_Rect r;
-      int disp = SDL_GetWindowDisplayIndex(sdlWindow);
-      SDL_GetDisplayBounds(disp < 0 ? 0 : disp, &r);
+      SDL_GetDisplayBounds(0, &r);
       horzdpi = pxRatio*std::max(r.h, r.w)/11.2f;  // 12.3in diag (Surface Pro) => 10.2in width; 14 in diag (X1 yoga) => 12.2in width
     //}
 #else
