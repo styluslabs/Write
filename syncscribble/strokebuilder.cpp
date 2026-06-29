@@ -1,4 +1,6 @@
 #include "strokebuilder.h"
+#include "scribbleapp.h"
+#include "shaperecognizer.h"
 
 // removePoints() doesn't really work except for removing all points
 // what about post-processing filters?  StrokeBuilder saves list all the points it gets and feeds them to
@@ -226,6 +228,14 @@ void FilledStrokeBuilder::addPoint(const StrokePoint& pt)
   Point pt1 = points.empty() ? pt2 : points.back();
   Point pt0 = points.size() > 1 ? points[points.size() - 2] : pt1;
 
+  static Dim holdThreshold = 0.6; // Should be dynamic so that while using a pen or a finger, the threshold is larger
+  if (points.empty()) {
+    holdStartTime = 0;
+  } else if(holdStartTime == 0 || pt2.dist(pt1) > holdThreshold) {
+    holdStartTime = pt.t;
+  }
+  //printf("p.t: %ld, dist: %f, empty: %d, time: %ld\n", pt.t, pt2.dist(pt1), points.empty(), holdStartTime);
+
   // width calculation - initially we had separate class for each, but only velocity has any complexity
   Dim wscale = 1.0;
   int nscales = 0;
@@ -441,6 +451,209 @@ Rect FilledStrokeBuilder::getDirty()
   return r;
 }
 
+bool FilledStrokeBuilder::shapeRecognize(Timestamp t)
+{
+  int holdTimeout = 0;
+  if (points.size() < 5 || holdStartTime == 0 || t - holdStartTime < holdTimeout)
+    return false;
+
+  Point centroid;
+  double avgRadius;
+  Point start, end;
+  std::vector<Point> corners;
+
+  if (ShapeRecognizer::isCircle(points, centroid, avgRadius)) {
+    removePoints(points.size());
+    dirty = Rect();
+
+    double halfWidth = pen.width / 2.0;
+    double circumference = 2 * M_PI * avgRadius;
+    int numSegments = std::max(20, static_cast<int>(circumference / 5.0));
+    
+    Path2D outerCircle;
+    for (int i = 0; i < numSegments; ++i) {
+        double angle = 2 * M_PI * i / numSegments;
+        Point point = {
+            centroid.x + (avgRadius + halfWidth) * std::cos(angle),
+            centroid.y + (avgRadius + halfWidth) * std::sin(angle)
+        };
+        if (i == 0)
+            outerCircle.moveTo(point.x, point.y);
+        else
+            outerCircle.lineTo(point.x, point.y);
+    }
+    outerCircle.closeSubpath();
+
+    Path2D innerCircle;
+    for (int i = 0; i < numSegments; ++i) {
+      double angle = 2 * M_PI * i / numSegments;
+      Point point = {
+        centroid.x + (avgRadius - halfWidth) * std::cos(angle),
+        centroid.y + (avgRadius - halfWidth) * std::sin(angle)
+      };
+      if (i == 0)
+        innerCircle.moveTo(point.x, point.y);
+      else
+        innerCircle.lineTo(point.x, point.y);
+    }
+    innerCircle.closeSubpath();
+
+    stroke->clear();
+    stroke->connectPath(outerCircle);
+    stroke->connectPath(innerCircle.toReversed());
+    
+    return true;
+  }
+  if (ShapeRecognizer::isRectangle(points, corners)) {
+    removePoints(points.size());
+
+    double halfWidth = pen.width; // So not really halfWidth here
+
+    Point p0 = corners[0];
+    Point p1 = corners[1];
+    Point p2 = corners[2];
+    Point p3 = corners[3];
+
+    double avgLeftX   = (p0.x + p3.x) / 2;
+    double avgRightX  = (p1.x + p2.x) / 2;
+    double avgTopY    = (p0.y + p1.y) / 2;
+    double avgBottomY = (p2.y + p3.y) / 2;
+
+    Point o0 = {avgLeftX, avgTopY};
+    Point o1 = {avgRightX, avgTopY};
+    Point o2 = {avgRightX, avgBottomY};
+    Point o3 = {avgLeftX, avgBottomY};
+
+    Point i0 = { o0.x + halfWidth, o0.y + halfWidth };
+    Point i1 = { o1.x - halfWidth, o1.y + halfWidth };
+    Point i2 = { o2.x - halfWidth, o2.y - halfWidth };
+    Point i3 = { o3.x + halfWidth, o3.y - halfWidth };
+
+    Path2D hollowRect;
+    hollowRect.moveTo(o0.x, o0.y);
+    hollowRect.lineTo(o1.x, o1.y);
+    hollowRect.lineTo(o2.x, o2.y);
+    hollowRect.lineTo(o3.x, o3.y);
+    hollowRect.closeSubpath();
+
+    Path2D innerRect;
+    innerRect.moveTo(i0.x, i0.y);
+    innerRect.lineTo(i1.x, i1.y);
+    innerRect.lineTo(i2.x, i2.y);
+    innerRect.lineTo(i3.x, i3.y);
+    innerRect.closeSubpath();
+
+    stroke->clear();
+    stroke->connectPath(hollowRect);
+    stroke->connectPath(innerRect.toReversed());
+    return true;
+  }
+  if (ShapeRecognizer::isArrow(points, start, end)) {
+    removePoints(points.size());
+    double halfWidth = pen.width / 2.0;
+    double headLength = std::max(10.0, pen.width * 2.5);
+    double headWidth = pen.width * 1.5;
+
+    double dx = end.x - start.x;
+    double dy = end.y - start.y;
+    double shaftLen = std::hypot(dx, dy);
+    double ux = dx / shaftLen;
+    double uy = dy / shaftLen;
+
+    double px = -uy;
+    double py = ux;
+
+    Point a = { start.x + px * halfWidth, start.y + py * halfWidth };
+    Point b = { start.x - px * halfWidth, start.y - py * halfWidth };
+    Point c = { end.x   - px * halfWidth, end.y   - py * halfWidth };
+    Point d = { end.x   + px * halfWidth, end.y   + py * halfWidth };
+
+    Path2D shaft;
+    shaft.moveTo(a.x, a.y);
+    shaft.lineTo(b.x, b.y);
+    shaft.lineTo(c.x, c.y);
+    shaft.lineTo(d.x, d.y);
+    shaft.closeSubpath();
+
+    const double angleRad1 = 135.0 * M_PI / 180.0;
+    double hx = std::cos(angleRad1) * ux - std::sin(angleRad1) * uy;
+    double hy = std::sin(angleRad1) * ux + std::cos(angleRad1) * uy;
+
+    const double angleRad2 = -135.0 * M_PI / 180.0;
+    double hx2 = std::cos(angleRad2) * ux - std::sin(angleRad2) * uy;
+    double hy2 = std::sin(angleRad2) * ux + std::cos(angleRad2) * uy;
+
+    Point tip1 = {end.x + hx * headLength, end.y + hy * headLength};
+    Point tip2 = {end.x + hx2 * headLength, end.y + hy2 * headLength};
+    
+    double pxHead1 = -hy;
+    double pyHead1 = hx;
+    double pxHead2 = -hy2;
+    double pyHead2 = hx2;
+    
+    Point ha1 = { end.x + pxHead1 * halfWidth, end.y + pyHead1 * halfWidth };
+    Point hb1 = { end.x - pxHead1 * halfWidth, end.y - pyHead1 * halfWidth };
+    Point hc1 = { tip1.x - pxHead1 * halfWidth, tip1.y - pyHead1 * halfWidth };
+    Point hd1 = { tip1.x + pxHead1 * halfWidth, tip1.y + pyHead1 * halfWidth };
+
+    Point ha2 = { end.x + pxHead2 * halfWidth, end.y + pyHead2 * halfWidth };
+    Point hb2 = { end.x - pxHead2 * halfWidth, end.y - pyHead2 * halfWidth };
+    Point hc2 = { tip2.x - pxHead2 * halfWidth, tip2.y - pyHead2 * halfWidth };
+    Point hd2 = { tip2.x + pxHead2 * halfWidth, tip2.y + pyHead2 * halfWidth };
+
+    Path2D headLine1;
+    headLine1.moveTo(ha1.x, ha1.y);
+    headLine1.lineTo(hb1.x, hb1.y);
+    headLine1.lineTo(hc1.x, hc1.y);
+    headLine1.lineTo(hd1.x, hd1.y);
+    headLine1.closeSubpath();
+
+    Path2D headLine2;
+    headLine2.moveTo(ha2.x, ha2.y);
+    headLine2.lineTo(hb2.x, hb2.y);
+    headLine2.lineTo(hc2.x, hc2.y);
+    headLine2.lineTo(hd2.x, hd2.y);
+    headLine2.closeSubpath();
+
+    stroke->clear();
+    stroke->connectPath(shaft);
+    stroke->connectPath(headLine1);
+    stroke->connectPath(headLine2);
+    
+    return true;
+  }
+  if (ShapeRecognizer::isLine(points, start, end)) {
+    removePoints(points.size());
+    dirty = Rect();
+
+    double halfWidth = pen.width / 2.0;
+    double dx = end.x - start.x;
+    double dy = end.y - start.y;
+    double length = std::hypot(dx, dy);
+    double ux = dx / length;
+    double uy = dy / length;
+    double px = -uy;
+    double py = ux;
+
+    Point a = { start.x + px * halfWidth, start.y + py * halfWidth };
+    Point b = { start.x - px * halfWidth, start.y - py * halfWidth };
+    Point c = { end.x   - px * halfWidth, end.y   - py * halfWidth };
+    Point d = { end.x   + px * halfWidth, end.y   + py * halfWidth };
+
+    Path2D linePath;
+    linePath.moveTo(a.x, a.y);
+    linePath.lineTo(b.x, b.y);
+    linePath.lineTo(c.x, c.y);
+    linePath.lineTo(d.x, d.y);
+    linePath.closeSubpath();
+
+    stroke->clear();
+    stroke->connectPath(linePath);
+
+    return true;
+  }
+  return false;
+}
 // filters
 
 // when accounting for pressure, the decrease in number of points is fairly minor (maybe ~20%), esp. when

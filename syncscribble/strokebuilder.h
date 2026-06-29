@@ -41,12 +41,14 @@ public:
   Element* getElement() { return element; }
   Path2D* getPath() { return stroke; }
   virtual Rect getDirty() { return element->bbox(); }
+  virtual bool shapeRecognize(Timestamp t) { return false; };
   Element* finish();  // caller assumes ownership of returned Element
 
   static StrokeBuilder* create(const ScribblePen& pen);
   static Point calcCom(SvgNode* node, Path2D* path);
 
 protected:
+  Timestamp holdStartTime = 0;
   Element* element;
   Path2D* stroke;
   void finalize() override;
@@ -74,6 +76,7 @@ class FilledStrokeBuilder : public StrokeBuilder {
 public:
   FilledStrokeBuilder(const ScribblePen& _pen);
   Rect getDirty() override;
+  bool shapeRecognize(Timestamp t) override;
 
   static void addRoundSubpath(Path2D& path, Point pt1, Dim w1, Point pt2, Dim w2);
   static void addChiselSubpath(Path2D& path, Point pt1, Dim w1, Point pt2, Dim w2);
@@ -82,6 +85,7 @@ public:
 protected:
   void addPoint(const StrokePoint& pt) override;
   void removePoints(int n) override;
+  void finalize() override;
 
 private:
   void assembleFlatStroke();
