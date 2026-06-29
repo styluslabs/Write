@@ -34,6 +34,8 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
+#include <X11/Xcursor/Xcursor.h>
+
 #define LOGE PLATFORM_LOG
 
 // MapsApp
@@ -131,20 +133,17 @@ void SDL_GetWindowPosition(SDL_Window* win, int* x, int* y) { *x = 0; *y = 0; }
 void SDL_DestroyWindow(SDL_Window* win) {}
 SDL_Window* SDL_GetWindowFromID(Uint32 id) { return NULL; }
 
-
-int SDL_GetWindowDisplayIndex(SDL_Window* win) { return 0; }
-
 int SDL_GetDisplayBounds(int display, SDL_Rect* rect)
 {
-  int snum = DefaultScreen(xContext.dpy);
+  XWindowAttributes attrs;
+  int snum = XGetWindowAttributes(xContext.dpy, xContext.win, &attrs) ?
+        XScreenNumberOfScreen(attrs.screen) : DefaultScreen(xContext.dpy);
   rect->w = DisplayWidth(xContext.dpy, snum);
   rect->h = DisplayHeight(xContext.dpy, snum);
   rect->x = 0;
   rect->y = 0;
   return 0;
 }
-
-void SDL_GL_GetDrawableSize(SDL_Window* window, int *w, int *h) { SDL_GetWindowSize(window, w, h); }
 
 void SDL_GL_SwapWindow(SDL_Window* win)
 {
@@ -163,12 +162,6 @@ int SDL_PeepEvents(SDL_Event* events, int numevents, SDL_eventaction action, Uin
   for(int ii = 0; ii < numevents; ++ii)
     Application::sdlEvent(&events[ii]);
   return numevents;
-}
-
-Uint32 SDL_RegisterEvents(int numevents)
-{
-  static Uint32 nextEvent = SDL_USEREVENT;
-  return std::exchange(nextEvent, nextEvent + numevents);
 }
 
 // https://github.com/H-M-H/Weylus can be used to send pen input from browser supporting pointer events to
@@ -1133,7 +1126,9 @@ void Application::drawFrame()
 
 //extern int SDL_main(int argc, char* argv[]);
 
-int Application::platformSetup(const char* wintitle, const char* winclass, WindowPos winrect)
+enum WindowFlags { USE_GL = 1, GL_VSYNC = 1<<1, GL_SHARED_CTX = 1<<2 };
+
+int Application::platformSetup(const char* wintitle, const char* winclass, WindowPos winrect, size_t flags)
 {
   //initBaseDir(argc > 0 ? argv[0] : NULL);
   /*
@@ -1173,37 +1168,60 @@ int Application::platformSetup(const char* wintitle, const char* winclass, Windo
   winSize.width = winrect.w;
   winSize.height = winrect.h;
 
-  if(!glXQueryExtension(xDpy, NULL, NULL)) { LOGE("glXQueryExtension() failed."); return -1; }
+  Visual* xVis = NULL;
+  int visdepth = CopyFromParent;
+  GLXContext mainCtx = NULL;
+  if(flags & USE_GL) {
+    if(!glXQueryExtension(xDpy, NULL, NULL)) { LOGE("glXQueryExtension() failed."); return -1; }
 
-  int fbcount = 0;
-  GLXFBConfig* fbConfigs = glXChooseFBConfig(xDpy, mainScr, glxFbAttribs, &fbcount);  //glXChooseVisual
-  if(!fbConfigs) { LOGE("glXChooseFBConfig() failed"); return -1; }
-  XVisualInfo* xVisual = glXGetVisualFromFBConfig(xDpy, fbConfigs[0]);
-  if(!xVisual) { LOGE("glXGetVisualFromFBConfig() failed"); return -1; }
+    // don't bother with GLAD GLX loader for just a few fns (we still use GLAD for GL functions)
+    auto glXCreateContextAttribsARB =
+        (PFNGLXCREATECONTEXTATTRIBSARBPROC)glXGetProcAddress((const GLubyte*)"glXCreateContextAttribsARB");
+    if(!glXCreateContextAttribsARB) { LOGE("glXGetProcAddress() failed"); return -1; }
+
+    int fbcount = 0;
+    GLXFBConfig* fbConfigs = glXChooseFBConfig(xDpy, mainScr, glxFbAttribs, &fbcount);  //glXChooseVisual
+    if(!fbConfigs) { LOGE("glXChooseFBConfig() failed"); return -1; }
+    XVisualInfo* xVisInfo = glXGetVisualFromFBConfig(xDpy, fbConfigs[0]);
+    if(!xVisInfo) { LOGE("glXGetVisualFromFBConfig() failed"); return -1; }
+    mainCtx = glXCreateContextAttribsARB(xDpy, fbConfigs[0], NULL, true, glxCtxAttribs);
+    //GLXContext mainCtx = glXCreateContext(xDpy, xVisual, None, True);
+    if(!mainCtx) { LOGE("glXCreateContextAttribsARB() failed"); return -1; }
+    if(flags & GL_SHARED_CTX) {
+      GLXContext auxCtx = glXCreateContextAttribsARB(xDpy, fbConfigs[0], mainCtx, true, glxCtxAttribs);
+      if(!auxCtx) { LOGE("glXCreateContext() failed for offscreen context"); return -1; }
+    }
+    xVis = xVisInfo->visual;
+    visdepth = xVisInfo->depth;
+  }
+  else {
+    xContext.gc = DefaultGC(xDpy, mainScr);
+    xVis = xContext.vis = DefaultVisual(xDpy, mainScr);
+  }
 
   XSetWindowAttributes winSetAttrs = {};
-  winSetAttrs.colormap = XCreateColormap(xDpy, rootWin, xVisual->visual, AllocNone);
+  winSetAttrs.colormap = XCreateColormap(xDpy, rootWin, xVis, AllocNone);
   winSetAttrs.background_pixel = scrInfo->black_pixel;
   winSetAttrs.event_mask = ExposureMask | StructureNotifyMask | KeyPressMask | KeyReleaseMask |
                            EnterWindowMask | LeaveWindowMask | ButtonPressMask |
                            ButtonReleaseMask | PointerMotionMask | FocusChangeMask |
                            PropertyChangeMask | KeymapStateMask;
   Window xWin = XCreateWindow(xDpy, rootWin, 0, 0, winSize.width, winSize.height, 0,
-      xVisual->depth, InputOutput, xVisual->visual, CWBackPixel | CWEventMask | CWColormap, &winSetAttrs);
+      visdepth, InputOutput, xVis, CWBackPixel | CWEventMask | CWColormap, &winSetAttrs);
   xContext.win = xWin;
 
   // drag and drop support
   Atom xdndVersion = 5;
   XChangeProperty(xDpy, xWin, XInternAtom(xDpy, "XdndAware", False),
       XA_ATOM, 32, PropModeReplace, (unsigned char*)&xdndVersion, 1);
-  XAtoms.xdndEnter      = XInternAtom(display, "XdndEnter", False);
-  XAtoms.xdndPosition   = XInternAtom(display, "XdndPosition", False);
-  XAtoms.xdndStatus     = XInternAtom(display, "XdndStatus", False);
-  XAtoms.xdndActionCopy = XInternAtom(display, "XdndActionCopy", False);
-  XAtoms.xdndDrop       = XInternAtom(display, "XdndDrop", False);
-  XAtoms.xdndFinished   = XInternAtom(display, "XdndFinished", False);
-  XAtoms.xdndSelection  = XInternAtom(display, "XdndSelection", False);
-  XAtoms.textUriList    = XInternAtom(display, "text/uri-list", False);
+  XAtoms.xdndEnter      = XInternAtom(xDpy, "XdndEnter", False);
+  XAtoms.xdndPosition   = XInternAtom(xDpy, "XdndPosition", False);
+  XAtoms.xdndStatus     = XInternAtom(xDpy, "XdndStatus", False);
+  XAtoms.xdndActionCopy = XInternAtom(xDpy, "XdndActionCopy", False);
+  XAtoms.xdndDrop       = XInternAtom(xDpy, "XdndDrop", False);
+  XAtoms.xdndFinished   = XInternAtom(xDpy, "XdndFinished", False);
+  XAtoms.xdndSelection  = XInternAtom(xDpy, "XdndSelection", False);
+  XAtoms.textUriList    = XInternAtom(xDpy, "text/uri-list", False);
 
   // set WM_CLASS so window is associated with correct launcher icon
   const char* res_name = winclass;  //"Ascend";
@@ -1233,30 +1251,22 @@ int Application::platformSetup(const char* wintitle, const char* winclass, Windo
   if(!XSetWMProtocols(xDpy, xWin, &WMAtoms.WM_DELETE_WINDOW, 1))
     LOGE("Couldn't register WM_DELETE_WINDOW\n");
 
-  // don't bother with GLAD GLX loader for just a few fns
-  auto glXCreateContextAttribsARB =
-      (PFNGLXCREATECONTEXTATTRIBSARBPROC)glXGetProcAddress((const GLubyte*)"glXCreateContextAttribsARB");
-  auto glXSwapIntervalEXT =
-      (PFNGLXSWAPINTERVALEXTPROC) glXGetProcAddress((const GLubyte*)"glXSwapIntervalEXT");
-  if(!glXCreateContextAttribsARB || !glXSwapIntervalEXT) { LOGE("glXGetProcAddress() failed"); return -1; }
+  if(mainCtx) {
+    //  auto offscreenWorker = std::make_unique<Tangram::AsyncWorker>("Ascend offscreen GL worker");
+    //  offscreenWorker->enqueue([=](){ glXMakeCurrent(xDpy, xWin, auxCtx); });
+    //  Tangram::ElevationManager::offscreenWorker = std::move(offscreenWorker);
+    glXMakeCurrent(xDpy, xWin, mainCtx);
+    //gladLoadGL();
+    const char* glXexts = glXQueryExtensionsString(xDpy, DefaultScreen(xDpy));
 
-  GLXContext mainCtx = glXCreateContextAttribsARB(xDpy, fbConfigs[0], NULL, true, glxCtxAttribs);
-  //GLXContext mainCtx = glXCreateContext(xDpy, xVisual, None, True);
-  if(!mainCtx) { LOGE("glXCreateContextAttribsARB() failed"); return -1; }
-
-  //  GLXContext auxCtx = glXCreateContextAttribsARB(xDpy, fbConfigs[0], mainCtx, true, glxCtxAttribs);
-  //  if(!auxCtx) { LOGE("glXCreateContext() failed for offscreen context"); return -1; }
-  //  auto offscreenWorker = std::make_unique<Tangram::AsyncWorker>("Ascend offscreen GL worker");
-  //  offscreenWorker->enqueue([=](){ glXMakeCurrent(xDpy, xWin, auxCtx); });
-  //  Tangram::ElevationManager::offscreenWorker = std::move(offscreenWorker);
-  glXMakeCurrent(xDpy, xWin, mainCtx);
-  //gladLoadGL();
-  const char* glXexts = glXQueryExtensionsString(xDpy, DefaultScreen(xDpy));
-
-  /*
-  int dfltswap = strstr(glXexts, "GLX_EXT_swap_control_tear") ? -1 : 1;
-  glXSwapIntervalEXT(xDpy, xWin, MapsApp::cfg()["gl_swap_interval"].as<int>(dfltswap));
-  */
+    if(flags & GL_VSYNC) {
+      auto glXSwapIntervalEXT =
+          (PFNGLXSWAPINTERVALEXTPROC) glXGetProcAddress((const GLubyte*)"glXSwapIntervalEXT");
+      if(!glXSwapIntervalEXT) { LOGE("glXGetProcAddress() failed"); return -1; }
+      int dfltswap = strstr(glXexts, "GLX_EXT_swap_control_tear") ? -1 : 1;
+      glXSwapIntervalEXT(xDpy, xWin, dfltswap);
+    }
+  }
 
   // setup input context for keyboard input
   XSetLocaleModifiers("");
@@ -1287,8 +1297,6 @@ int Application::platformSetup(const char* wintitle, const char* winclass, Windo
   Application::sdlWindow = &xContext;
 
   // SW rendering
-  GC xGC = xContext.gc = DefaultGC(xDpy, mainScr);
-  Visual* xVis = xContext.vis = DefaultVisual(xDpy, mainScr);
   //int depth = DefaultDepth(xDpy, mainScr);
   //XShmSegmentInfo shminfo;
   //XImage* xImg = NULL;
@@ -1431,38 +1439,30 @@ Application::WindowPos Application::platformGetWindowPos()
   return WindowPos{winAttrs.x, winAttrs.y, winAttrs.width, winAttrs.height, 0, 0};
 }
 
-#include <X11/Xcursor/Xcursor.h>
-
-void setCursor(Cursor cursor)
-{
-  XDefineCursor(xContext.dpy, xContext.win, cursor);
-  XFlush(xContext.dpy);
-
-  //XUndefineCursor(xContext.dpy, xContext.win) or XDefineCursor(xContext.dpy, xContext.win, None) to restore system cursor
-  //transparent image to hide cursor
-}
-
-struct PlatformCursor {
-  PlatformCursor(const Image* image, int hot_x, int hot_y);
-  ~PlatformCursor() { XFreeCursor(xContext.dpy, cursor); }
+struct X11Cursor : public PlatformCursor {
+  X11Cursor(Cursor c) : cursor(c) {} //PlatformCursor(const Image* image, int hot_x, int hot_y);
+  ~X11Cursor() override { XFreeCursor(xContext.dpy, cursor); }
   Cursor cursor;
 };
 
-PlatformCursor platformCreateCursor(const Image* image, int hot_x, int hot_y)
+void platformSetCursor(const PlatformCursor* cursor)
+{
+  //XUndefineCursor(dpy, win) or XDefineCursor(dpy, win, None) to restore system cursor
+  XDefineCursor(xContext.dpy, xContext.win, cursor ? static_cast<const X11Cursor*>(cursor)->cursor : None);
+  XFlush(xContext.dpy);
+}
+
+std::unique_ptr<PlatformCursor> platformCreateCursor(const Image* image, int hot_x, int hot_y)
 {
   XcursorImage* cursorImage = XcursorImageCreate(image->width, image->height);
-  if(!cursorImage) { return; }
+  if(!cursorImage) { return {}; }
   cursorImage->xhot = hot_x;
   cursorImage->yhot = hot_y;
   cursorImage->delay = 0; // Only used for animated cursors
   memcpy(cursorImage->pixels, image->constPixels(), image->dataLen());
   Cursor cursor = XcursorImageLoadCursor(xContext.dpy, cursorImage);
   XcursorImageDestroy(cursorImage);
-  return PlatformCursor{cursor};
-
-
-  // where to free cursor?
-  //XFreeCursor(xContext.dpy, cursor);
+  return std::make_unique<X11Cursor>(cursor);
 }
 
 #define _NET_WM_STATE_REMOVE        0
@@ -1511,119 +1511,3 @@ void platformMessageBox(std::string title, std::string msg)
 //{
 //  MessageBoxA(parent, msg.c_str(), title.c_str(), MB_OK | MB_ICONINFORMATION);
 //}
-
-// will need to move this to something like svggui_platform.cpp (or just into Write)
-const char* SDL_GetKeyName(SDL_Keycode key)
-{
-  switch (key) {
-    case SDLK_BACKSPACE: return "Backspace";
-    case SDLK_TAB: return "Tab";
-    case SDLK_RETURN: return "Return";
-    case SDLK_ESCAPE: return "Escape";
-    case SDLK_SPACE: return " ";
-
-    case SDLK_EXCLAIM: return "!";
-    case SDLK_QUOTEDBL: return "\"";
-    case SDLK_HASH: return "#";
-    case SDLK_DOLLAR: return "$";
-    case SDLK_PERCENT: return "%";
-    case SDLK_AMPERSAND: return "&";
-    case SDLK_QUOTE: return "'";
-    case SDLK_LEFTPAREN: return "(";
-    case SDLK_RIGHTPAREN: return ")";
-    case SDLK_ASTERISK: return "*";
-    case SDLK_PLUS: return "+";
-    case SDLK_COMMA: return ",";
-    case SDLK_MINUS: return "-";
-    case SDLK_PERIOD: return ".";
-    case SDLK_SLASH: return "/";
-
-    case SDLK_0: return "0";
-    case SDLK_1: return "1";
-    case SDLK_2: return "2";
-    case SDLK_3: return "3";
-    case SDLK_4: return "4";
-    case SDLK_5: return "5";
-    case SDLK_6: return "6";
-    case SDLK_7: return "7";
-    case SDLK_8: return "8";
-    case SDLK_9: return "9";
-
-    case SDLK_COLON: return ":";
-    case SDLK_SEMICOLON: return ";";
-    case SDLK_LESS: return "<";
-    case SDLK_EQUALS: return "=";
-    case SDLK_GREATER: return ">";
-    case SDLK_QUESTION: return "?";
-    case SDLK_AT: return "@";
-
-    case SDLK_a: return "A";
-    case SDLK_b: return "B";
-    case SDLK_c: return "C";
-    case SDLK_d: return "D";
-    case SDLK_e: return "E";
-    case SDLK_f: return "F";
-    case SDLK_g: return "G";
-    case SDLK_h: return "H";
-    case SDLK_i: return "I";
-    case SDLK_j: return "J";
-    case SDLK_k: return "K";
-    case SDLK_l: return "L";
-    case SDLK_m: return "M";
-    case SDLK_n: return "N";
-    case SDLK_o: return "O";
-    case SDLK_p: return "P";
-    case SDLK_q: return "Q";
-    case SDLK_r: return "R";
-    case SDLK_s: return "S";
-    case SDLK_t: return "T";
-    case SDLK_u: return "U";
-    case SDLK_v: return "V";
-    case SDLK_w: return "W";
-    case SDLK_x: return "X";
-    case SDLK_y: return "Y";
-    case SDLK_z: return "Z";
-
-    case SDLK_LEFTBRACKET: return "[";
-    case SDLK_BACKSLASH: return "\\";
-    case SDLK_RIGHTBRACKET: return "]";
-    case SDLK_CARET: return "^";
-    case SDLK_UNDERSCORE: return "_";
-    case SDLK_BACKQUOTE: return "`";
-
-    case SDLK_DELETE: return "Delete";
-
-    case SDLK_F1: return "F1";
-    case SDLK_F2: return "F2";
-    case SDLK_F3: return "F3";
-    case SDLK_F4: return "F4";
-    case SDLK_F5: return "F5";
-    case SDLK_F6: return "F6";
-    case SDLK_F7: return "F7";
-    case SDLK_F8: return "F8";
-    case SDLK_F9: return "F9";
-    case SDLK_F10: return "F10";
-    case SDLK_F11: return "F11";
-    case SDLK_F12: return "F12";
-
-    case SDLK_PRINTSCREEN: return "PrintScreen";
-    case SDLK_SCROLLLOCK: return "ScrollLock";
-    case SDLK_PAUSE: return "Pause";
-    case SDLK_INSERT: return "Insert";
-    case SDLK_HOME: return "Home";
-    case SDLK_PAGEUP: return "PageUp";
-    case SDLK_END: return "End";
-    case SDLK_PAGEDOWN: return "PageDown";
-    case SDLK_RIGHT: return "Right";
-    case SDLK_LEFT: return "Left";
-    case SDLK_DOWN: return "Down";
-    case SDLK_UP: return "Up";
-
-    case SDLK_NUMLOCKCLEAR: return "NumLockClear";
-    case SDLK_CAPSLOCK: return "CapsLock";
-
-    case SDLK_APPLICATION: return "Application";
-
-    default: return "Unknown";
-  }
-}

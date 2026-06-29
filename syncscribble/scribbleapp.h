@@ -147,11 +147,10 @@ public:
       STORAGE_PERMISSION, DISMISS_DIALOG, SIMULATE_PEN_BTN, IAP_COMPLETE, APP_SUSPEND};
 
 #if !PLATFORM_MOBILE
-  //static bool staticInited;
-  struct PlatformCursor;
   std::unique_ptr<PlatformCursor> penCursor;
   std::unique_ptr<PlatformCursor> panCursor;
   std::unique_ptr<PlatformCursor> eraseCursor;
+  std::unique_ptr<PlatformCursor> blankCursor;
 #endif
 
   ScribbleArea* activeArea() const { return mActiveArea; }
