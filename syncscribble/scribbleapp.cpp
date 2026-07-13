@@ -1427,7 +1427,7 @@ void ScribbleApp::insertDocument()
 {
   std::string filename = execDocumentList(DocumentList::CHOOSE_DOC);
   if(!filename.empty() && activeDoc()->insertDocument(new FileStream(filename.c_str(), "rb")) != Document::LOAD_OK)
-    messageBox(Warning, _("Error inserting document"), fstring(_("An error occured opening %s"), docDisplayName(filename).c_str()));
+    messageBox(Warning, _("Error inserting document"), fstring(_("An error occurred opening %s"), docDisplayName(filename).c_str()));
 }
 
 std::string ScribbleApp::execDocumentList(int mode, const char* exts, bool cancelable)
