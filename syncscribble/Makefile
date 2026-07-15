@@ -266,7 +266,7 @@ include Makefile.wasm
 
 else
 
-SOURCES += linux/linuxtablet.c ../nanovgXC/glad/glad.c
+SOURCES += linux/linuxtablet.c linux/linuxwayland.c ../nanovgXC/glad/glad.c
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 DEBUG ?= 0
 USE_SYSTEM_SDL ?= 0
@@ -283,6 +283,18 @@ else
     # use $(BUILDDIR) to support Release and LinuxRel
     LIBS = ../SDL/$(BUILDDIR)/libSDL2.a
   endif
+endif
+
+WAYLAND ?= 1
+WAYLAND_PROTOCOL_DIR=$(BUILDDIR)/wayland-protocols
+ifneq ($(WAYLAND), 0)
+	SOURCES += \
+		$(WAYLAND_PROTOCOL_DIR)/wayland.c \
+		$(WAYLAND_PROTOCOL_DIR)/tablet-v2.c
+
+	INCSYS += $(WAYLAND_PROTOCOL_DIR)
+
+	PKGS += wayland-client
 endif
 
 # must use this instead of just -lpthread so the defines needed by force_glibc.h are created

@@ -1,0 +1,7 @@
+.PHONY: build run
+
+build:
+	$(MAKE) -j8 USE_SYSTEM_SDL=1 DEBUG=0 CXXFLAGS=-g
+
+run: build
+	SDL_VIDEODRIVER=wayland ./Release/Write
