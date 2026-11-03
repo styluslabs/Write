@@ -365,16 +365,12 @@ void MainWindow::toggleClippings()
 
 void MainWindow::toggleFullscreen()
 {
-/*
-  bool fs = !(SDL_GetWindowFlags(sdlWindow) & SDL_WINDOW_FULLSCREEN);  // toggle
-  if(fs)
-    SDL_MaximizeWindow(sdlWindow);  // otherwise switches to some partial screen video mode!
-  SDL_SetWindowFullscreen(sdlWindow, fs ? SDL_WINDOW_FULLSCREEN : 0);
+  bool fs = !actionFullscreen->isChecked();  // toggle
+  platformSetFullscreen(fs);
   actionFullscreen->setChecked(fs);
 #if PLATFORM_IOS
   selectFirst("#ios-statusbar-bg")->setVisible(!fs);
 #endif
-*/
 }
 
 void MainWindow::toggleInvertColors()

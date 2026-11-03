@@ -223,8 +223,8 @@ void Application::setupUIScale(float horzdpi)
     //SDL_GetDisplayDPI(0, NULL, &horzdpi, NULL);
     //horzdpi = 168*horzdpi/96;
     //if(horzdpi <= 125) { // 72, 96, and 120 are common garbage values returned by Windows
-      SDL_Rect r;
-      SDL_GetDisplayBounds(0, &r);
+      SDL_Rect r = {0, 0, 1920, 1080};
+      SDL_GetDisplayBounds(SDL_GetWindowDisplayIndex(sdlWindow), &r);
       horzdpi = pxRatio*std::max(r.h, r.w)/11.2f;  // 12.3in diag (Surface Pro) => 10.2in width; 14 in diag (X1 yoga) => 12.2in width
     //}
 #else

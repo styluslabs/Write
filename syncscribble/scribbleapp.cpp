@@ -1302,8 +1302,8 @@ void ScribbleApp::getScreenPageDims(int* w, int* h)
 //  int screenw = androiddims >> 16;
 //  int screenh = androiddims & 0x0000FFFF;
 //#else
-  SDL_Rect r;
-  SDL_GetDisplayBounds(0, &r);  // or SDL_GetDisplayUsableBounds
+  SDL_Rect r = {0, 0, 0, 0};
+  SDL_GetDisplayBounds(SDL_GetWindowDisplayIndex(sdlWindow), &r);  // or SDL_GetDisplayUsableBounds
   // 0,0 page size causes problems (e.g. errors loading doc)
   r.w = std::max(200, r.w);
   r.h = std::max(200, r.h);
@@ -1991,8 +1991,8 @@ void ScribbleApp::populateRecentFiles()
   if(!win->menuRecent_Files)
     return;
 
-  SDL_Rect screenrect;
-  SDL_GetDisplayBounds(0, &screenrect);  // or SDL_GetDisplayUsableBounds
+  SDL_Rect screenrect = {0, 0, 1080, 1080};
+  SDL_GetDisplayBounds(SDL_GetWindowDisplayIndex(sdlWindow), &screenrect);  // or SDL_GetDisplayUsableBounds
   int maxwidth = 0.75*MIN(screenrect.w, screenrect.h);
   for(size_t ii = 0; ii < recentDocs.size(); ++ii) {
     if(recentFileActions.size() <= ii) {

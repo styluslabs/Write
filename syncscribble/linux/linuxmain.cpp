@@ -25,7 +25,9 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/XInput2.h>
+#include <X11/extensions/Xrandr.h>
 #include <malloc.h>
+#include <climits>
 #include <mutex>
 #include <deque>
 #include <thread>
@@ -67,6 +69,85 @@ static struct {
       clipboard, PRIMARY, imagePng, sdlSel, Incr, UTF8_STRING, STRING, COMPOUND_TEXT, C_STRING, TARGETS,
       xdndEnter, xdndPosition, xdndStatus, xdndActionCopy, xdndDrop, xdndFinished, xdndSelection, textUriList;
 } XAtoms;
+
+static struct {
+  Atom NET_WM_STATE, NET_WM_STATE_MAXIMIZED_VERT, NET_WM_STATE_MAXIMIZED_HORZ, NET_WM_STATE_FULLSCREEN,
+      NET_FRAME_EXTENTS;
+} WinStateAtoms;
+
+// last non-maximized, non-fullscreen geometry (frame position, client size; absolute coords), for saving
+static struct { bool dirty = false; bool maximized = false; int x = 0, y = 0, w = 0, h = 0; } winGeom;
+
+static std::vector<SDL_Rect> getMonitors(Display* dpy, int* primary = NULL)
+{
+  std::vector<SDL_Rect> mons;
+  if(primary) { *primary = 0; }
+  int nmons = 0;
+  XRRMonitorInfo* info = XRRGetMonitors(dpy, DefaultRootWindow(dpy), True, &nmons);
+  for(int ii = 0; info && ii < nmons; ++ii) {
+    mons.push_back(SDL_Rect{info[ii].x, info[ii].y, info[ii].width, info[ii].height});
+    if(primary && info[ii].primary) { *primary = ii; }
+  }
+  if(info) { XRRFreeMonitors(info); }
+  if(mons.empty()) {
+    int scr = DefaultScreen(dpy);
+    mons.push_back(SDL_Rect{0, 0, DisplayWidth(dpy, scr), DisplayHeight(dpy, scr)});
+  }
+  return mons;
+}
+
+// index of monitor containing point, or monitor nearest to it
+static int monitorForPoint(const std::vector<SDL_Rect>& mons, int px, int py)
+{
+  int best = 0;
+  long bestdist = LONG_MAX;
+  for(size_t ii = 0; ii < mons.size(); ++ii) {
+    const SDL_Rect& m = mons[ii];
+    long dx = px < m.x ? m.x - px : (px >= m.x + m.w ? px - (m.x + m.w - 1) : 0);
+    long dy = py < m.y ? m.y - py : (py >= m.y + m.h ? py - (m.y + m.h - 1) : 0);
+    long dist = dx*dx + dy*dy;
+    if(dist < bestdist) { bestdist = dist; best = int(ii); }
+  }
+  return best;
+}
+
+static bool getWindowProperty(Atom prop, Atom type, long maxlen, std::vector<long>& out)
+{
+  Atom actualType; int actualFormat; unsigned long nitems = 0, after = 0;
+  unsigned char* data = NULL;
+  out.clear();
+  if(XGetWindowProperty(xContext.dpy, xContext.win, prop, 0, maxlen, False, type,
+      &actualType, &actualFormat, &nitems, &after, &data) != Success || !data) { return false; }
+  // format 32 properties are returned as arrays of long
+  if(actualFormat == 32) { out.assign((long*)data, (long*)data + nitems); }
+  XFree(data);
+  return actualFormat == 32;
+}
+
+static void updateWinGeom()
+{
+  winGeom.dirty = false;
+  std::vector<long> state;
+  bool maxv = false, maxh = false, fullscreen = false;
+  getWindowProperty(WinStateAtoms.NET_WM_STATE, XA_ATOM, 64, state);
+  for(long a : state) {
+    if(Atom(a) == WinStateAtoms.NET_WM_STATE_MAXIMIZED_VERT) { maxv = true; }
+    else if(Atom(a) == WinStateAtoms.NET_WM_STATE_MAXIMIZED_HORZ) { maxh = true; }
+    else if(Atom(a) == WinStateAtoms.NET_WM_STATE_FULLSCREEN) { fullscreen = true; }
+  }
+  winGeom.maximized = maxv && maxh;
+  if(maxv || maxh || fullscreen) { return; }  // keep previous normal geometry
+  int absx = 0, absy = 0;
+  XXWindow child;
+  XTranslateCoordinates(xContext.dpy, xContext.win, DefaultRootWindow(xContext.dpy), 0, 0, &absx, &absy, &child);
+  std::vector<long> ext;  // left, right, top, bottom
+  if(!getWindowProperty(WinStateAtoms.NET_FRAME_EXTENTS, XA_CARDINAL, 4, ext) || ext.size() < 4)
+    ext.assign(4, 0);
+  winGeom.x = absx - int(ext[0]);
+  winGeom.y = absy - int(ext[2]);
+  winGeom.w = xContext.width;
+  winGeom.h = xContext.height;
+}
 
 void PLATFORM_WakeEventLoop(void)
 {
@@ -139,20 +220,29 @@ void SDL_GetWindowSize(SDL_Window* win, int* w, int* h)
   if(w) { *w = xContext.width; }
   if(h) { *h = xContext.height; }
 }
-void SDL_GetWindowPosition(SDL_Window* win, int* x, int* y) { *x = 0; *y = 0; }
+void SDL_GetWindowPosition(SDL_Window* win, int* x, int* y)
+{
+  XXWindow child;
+  XTranslateCoordinates(xContext.dpy, xContext.win, DefaultRootWindow(xContext.dpy), 0, 0, x, y, &child);
+}
 void SDL_DestroyWindow(SDL_Window* win) {}
 SDL_Window* SDL_GetWindowFromID(Uint32 id) { return NULL; }
 
 int SDL_GetDisplayBounds(int display, SDL_Rect* rect)
 {
-  XWindowAttributes attrs;
-  int snum = XGetWindowAttributes(xContext.dpy, xContext.win, &attrs) ?
-        XScreenNumberOfScreen(attrs.screen) : DefaultScreen(xContext.dpy);
-  rect->w = DisplayWidth(xContext.dpy, snum);
-  rect->h = DisplayHeight(xContext.dpy, snum);
-  rect->x = 0;
-  rect->y = 0;
+  auto mons = getMonitors(xContext.dpy);
+  if(display < 0 || display >= int(mons.size())) { return -1; }
+  *rect = mons[display];
   return 0;
+}
+
+int SDL_GetWindowDisplayIndex(SDL_Window* win)
+{
+  int absx = 0, absy = 0;
+  XXWindow child;
+  XTranslateCoordinates(xContext.dpy, xContext.win, DefaultRootWindow(xContext.dpy),
+      xContext.width/2, xContext.height/2, &absx, &absy, &child);
+  return monitorForPoint(getMonitors(xContext.dpy), absx, absy);
 }
 
 void SDL_GL_SwapWindow(SDL_Window* win)
@@ -872,6 +962,7 @@ static void processX11Event(XEvent* xevent)
     }
     break;
   case ConfigureNotify:
+    winGeom.dirty = true;
     if(xContext.width != xevent->xconfigure.width || xContext.height != xevent->xconfigure.height) {
       xContext.width = xevent->xconfigure.width;
       xContext.height = xevent->xconfigure.height;
@@ -987,6 +1078,11 @@ static void processX11Event(XEvent* xevent)
     }
     // fall-through to handle clipboard
   case PropertyNotify:
+    if(xevent->xproperty.window == xContext.win && (xevent->xproperty.atom == WinStateAtoms.NET_WM_STATE
+        || xevent->xproperty.atom == WinStateAtoms.NET_FRAME_EXTENTS)) {
+      winGeom.dirty = true;
+      break;
+    }
     processClipboardXEvent(xevent);
     break;
   }
@@ -1128,6 +1224,8 @@ bool platformProcessEvents(bool wait)
       any = true;
     }
     while(dispatchQueuedEvent()) { any = true; }
+    // done here (instead of on every ConfigureNotify) so window state and size are consistent
+    if(winGeom.dirty) { updateWinGeom(); }
     if(any || !wait) { break; }
     // block until next X event (PLATFORM_WakeEventLoop sends one when events are pushed from other threads)
     XEvent xevent = {};
@@ -1229,14 +1327,23 @@ PlatformWindow* platformInit(PlatformConfig& cfg)
   //float dpi = inches > 2 && inches < 240 ? scrInfo->width/inches : scrInfo->width/11.2f;
   float dpi = scrInfo->width/12.0f;  // ignore physical size of screen - larger screen is typically further away
 
+  // window position is relative to display (monitor) winrect.display; reset if it doesn't fit on display
+  int primaryMon = 0;
+  auto mons = getMonitors(xDpy, &primaryMon);
+  int dispIdx = winrect.display >= 0 && winrect.display < int(mons.size()) ? winrect.display : primaryMon;
+  const SDL_Rect& mon = mons[dispIdx];
+  if(winrect.w <= 0 || winrect.h <= 0 || winrect.x < 0 || winrect.y < 0 || winrect.x >= mon.w
+      || winrect.y >= mon.h || winrect.w > mon.w || winrect.h > mon.h) {
+    int w = mon.w/2, h = int(0.9f*mon.h);
+    winrect = { (mon.w - w)/2, (mon.h - h)/2, w, h, winrect.maximized, dispIdx };
+  }
   XSizeHints winSize = {};
-  winSize.flags = PPosition | PSize;
-  if(winrect.w == 0 || winrect.h == 0)
-    winrect = { 0, 0, scrInfo->width/2, int(0.9f*scrInfo->height) };
-  winSize.x = winrect.x;
-  winSize.y = winrect.y;
+  winSize.flags = USPosition | USSize;  // US* = user specified, so WM should respect
+  winSize.x = mon.x + winrect.x;
+  winSize.y = mon.y + winrect.y;
   winSize.width = winrect.w;
   winSize.height = winrect.h;
+  winGeom.x = winSize.x;  winGeom.y = winSize.y;  winGeom.w = winrect.w;  winGeom.h = winrect.h;
 
   Visual* xVis = NULL;
   int visdepth = CopyFromParent;
@@ -1261,7 +1368,7 @@ PlatformWindow* platformInit(PlatformConfig& cfg)
                            EnterWindowMask | LeaveWindowMask | ButtonPressMask |
                            ButtonReleaseMask | PointerMotionMask | FocusChangeMask |
                            PropertyChangeMask | KeymapStateMask;
-  Window xWin = XCreateWindow(xDpy, rootWin, 0, 0, winSize.width, winSize.height, 0,
+  Window xWin = XCreateWindow(xDpy, rootWin, winSize.x, winSize.y, winSize.width, winSize.height, 0,
       visdepth, InputOutput, xVis, CWBackPixel | CWEventMask | CWColormap, &winSetAttrs);
   xContext.win = xWin;
 
@@ -1298,6 +1405,19 @@ PlatformWindow* platformInit(PlatformConfig& cfg)
   //XStoreName(xDpy, xWin, "Ascend Maps");
   XSetStandardProperties(xDpy, xWin, wintitle, wintitle, None, NULL, 0, &winSize);
   //setWinIcon(xDpy, xWin, FSPath(MapsApp::baseDir, "shared/icons/app144x144.png").c_str());
+
+  WinStateAtoms.NET_WM_STATE = XInternAtom(xDpy, "_NET_WM_STATE", False);
+  WinStateAtoms.NET_WM_STATE_MAXIMIZED_VERT = XInternAtom(xDpy, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+  WinStateAtoms.NET_WM_STATE_MAXIMIZED_HORZ = XInternAtom(xDpy, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+  WinStateAtoms.NET_WM_STATE_FULLSCREEN = XInternAtom(xDpy, "_NET_WM_STATE_FULLSCREEN", False);
+  WinStateAtoms.NET_FRAME_EXTENTS = XInternAtom(xDpy, "_NET_FRAME_EXTENTS", False);
+  // initial state can be set via _NET_WM_STATE property before window is mapped
+  if(winrect.maximized) {
+    Atom maxstate[2] = {WinStateAtoms.NET_WM_STATE_MAXIMIZED_VERT, WinStateAtoms.NET_WM_STATE_MAXIMIZED_HORZ};
+    XChangeProperty(xDpy, xWin, WinStateAtoms.NET_WM_STATE, XA_ATOM, 32, PropModeReplace,
+        (unsigned char*)maxstate, 2);
+    winGeom.maximized = true;
+  }
   XMapWindow(xDpy, xWin);
 
   WMAtoms.WM_PROTOCOLS = XInternAtom(xDpy, "WM_PROTOCOLS", False);
@@ -1488,11 +1608,14 @@ void platformShutdown()
   xContext.dpy = NULL;
 }
 
+// returns normal (non-maximized) geometry relative to display containing it
 WindowPos platformGetWindowPos()
 {
-  XWindowAttributes winAttrs;
-  XGetWindowAttributes(xContext.dpy, xContext.win, &winAttrs);
-  return WindowPos{winAttrs.x, winAttrs.y, winAttrs.width, winAttrs.height, 0, 0};
+  updateWinGeom();
+  auto mons = getMonitors(xContext.dpy);
+  int disp = monitorForPoint(mons, winGeom.x + winGeom.w/2, winGeom.y + winGeom.h/2);
+  const SDL_Rect& mon = mons[disp];
+  return WindowPos{winGeom.x - mon.x, winGeom.y - mon.y, winGeom.w, winGeom.h, winGeom.maximized, disp};
 }
 
 struct X11Cursor : public PlatformCursor {
