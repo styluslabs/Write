@@ -1,4 +1,5 @@
 #include <unistd.h>  // for symlink()
+#include <sys/wait.h>
 #include "ugui/svggui.h"
 #include "usvg/svgwriter.h"
 
@@ -590,12 +591,15 @@ static void processXinput2Event(XGenericEventCookie* cookie)
 }
 
 static int reqClipboardText = 0;
+typedef void (*ClipboardCallback_t)(const unsigned char* buff, size_t len, int is_image);
+static ClipboardCallback_t clipboardCallback = NULL;
 
-void clipboardFromBuffer(const unsigned char* buff, size_t len, int is_image)
+static void clipboardFromBuffer(const unsigned char* buff, size_t len, int is_image)
 {
   if(!is_image)
     currClipboard.assign((const char*)buff, len);
-  //ScribbleApp::app->insertImage(Image::decodeBuffer(buff, len), true);
+  if(clipboardCallback)
+    clipboardCallback(buff, len, is_image);
 }
 
 // This should be moved to a separate file and std::vector used instead of our manual attempt
@@ -713,8 +717,11 @@ static int linuxInitTablet(Display* xDisplay, Window xWindow)
 // * https://stackoverflow.com/questions/27378318/c-get-string-from-clipboard-on-linux/44992938#44992938
 // * https://github.com/glfw/glfw/blob/master/src/x11_window.c
 
-int requestClipboard(SDL_Window* sdlwin)
+// X11 clipboard is async: request contents (PNG image preferred, else UTF-8 text) from owner; callback is
+//  called with contents when received (SDL_GetClipboardText() will also return text after this)
+int requestClipboard(SDL_Window* sdlwin, ClipboardCallback_t callback)
 {
+  clipboardCallback = callback;
   Window owner = XGetSelectionOwner(xContext.dpy, XAtoms.clipboard);
   if(owner == None || owner == xContext.win)
     return 0;
@@ -999,7 +1006,6 @@ static void processX11Event(XEvent* xevent)
     break;
   }
   case FocusIn:
-    requestClipboard(NULL);  // X11 clipboard request is async, so load immediately
   case FocusOut:
   {
     currKeymod = KMOD_NONE;  // reset mod state because we don't get key events when not focused
@@ -1059,6 +1065,13 @@ static void processX11Event(XEvent* xevent)
   }
   case SelectionRequest:
     processSelectionRequest(&xevent->xselectionrequest);
+    break;
+  case SelectionClear:  // another application took ownership of clipboard
+    if(xevent->xselectionclear.selection == XAtoms.clipboard) {
+      SDL_Event event = {0};
+      event.type = SDL_CLIPBOARDUPDATE;
+      SDL_PushEvent(&event);
+    }
     break;
   case SelectionNotify:
     if(xevent->xselection.selection == XAtoms.xdndSelection) {
@@ -1697,8 +1710,14 @@ void platformSetFullscreen(bool enable)
 // no simple X11 API to show a message box; only needed for errors initializing OpenGL or ugui
 void platformMessageBox(std::string title, std::string msg)
 {
-  std::string cmd = "xmessage -center -title " + title + " " + msg;
-  system(cmd.c_str());
+  // exec directly (not via shell) so title and msg don't need quoting
+  pid_t pid = fork();
+  if(pid == 0) {
+    execlp("xmessage", "xmessage", "-center", "-title", title.c_str(), msg.c_str(), (char*)NULL);
+    _exit(127);
+  }
+  if(pid > 0) { waitpid(pid, NULL, 0); }
+  else { LOGE("%s: %s", title.c_str(), msg.c_str()); }
 }
 
 // On Windows:

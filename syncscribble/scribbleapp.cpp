@@ -28,7 +28,8 @@
 #include "macos/macoshelper.h"
 #elif PLATFORM_LINUX
 //#include "linux/linuxtablet.h"
-extern int requestClipboard(SDL_Window* sdlwin);
+extern int requestClipboard(SDL_Window* sdlwin, void (*callback)(const unsigned char*, size_t, int));
+extern "C" { void clipboardFromBuffer(const unsigned char* buff, size_t len, int is_image); }
 #endif
 
 ScribbleApp* ScribbleApp::app = NULL;
@@ -1114,7 +1115,7 @@ void ScribbleApp::loadClipboard()
 
 #if PLATFORM_LINUX
   // SDL_GetClipboardText on Linux doesn't support INCR, so fails w/ large amounts of text
-  requestClipboard(win->sdlWindow);  // async, so will set clipboard when contents are ready
+  requestClipboard(win->sdlWindow, clipboardFromBuffer);  // async, so will set clipboard when contents are ready
 #else
   const char* clipText = SDL_GetClipboardText();
   if(clipText && clipText[0])
