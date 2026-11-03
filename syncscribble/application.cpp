@@ -9,7 +9,6 @@
 
 #if PLATFORM_WIN
 #include "windows/winhelper.h"
-#include "SDL_syswm.h"
 #elif PLATFORM_LINUX
 //#include "linux/linuxtablet.h"
 #elif PLATFORM_OSX
@@ -244,7 +243,6 @@ int appMain(int argc, char* argv[])
 {
   Application::runApplication = true;
 #if PLATFORM_WIN
-  setDPIAware();
   winLogToConsole = attachParentConsole();  // printing to old console is slow, but Powershell is fine
 #endif
   unet_init();
@@ -332,6 +330,15 @@ int appMain(int argc, char* argv[])
     platformMessageBox("Error", "Unable to create window.");
     return -1;
   }
+#if PLATFORM_WIN
+  // platform layer creates GL context, but we must load GL fns
+  if((platformCfg.flags & PlatformConfig::USE_GL) && !gladLoadGL()) {
+    PLATFORM_LOG("gladLoadGL() failed - falling back to software rendering\n");
+    platformCfg.flags &= ~PlatformConfig::USE_GL;  // platform blits SW framebuffer once requested
+  }
+  if(ScribbleApp::cfg->Bool("useWintab"))
+    initWintab((HWND)platformGetNativeWindow());
+#endif
   if(!(platformCfg.flags & PlatformConfig::USE_GL))
     ScribbleApp::cfg->set("glRender", 0);
   // platform clears SRGB flag if sRGB framebuffer not available (only relevant for GLES)
@@ -549,6 +556,9 @@ int appMain(int argc, char* argv[])
 //  swFB = NULL;  // SDL_main can be called again on Android(!)
 //#endif
   platformSetEventHandler(NULL);
+#if PLATFORM_WIN
+  shutdownWintab();
+#endif
   platformShutdown();
   unet_terminate();
   return 0;

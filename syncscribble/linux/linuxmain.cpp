@@ -1748,6 +1748,8 @@ void platformMessageBox(std::string title, std::string msg)
 
 void platformKeepScreenOn(bool on) {}  // desktop: not supported
 
+void* platformGetNativeWindow() { return (void*)xContext.win; }
+
 // only needed for soft keyboard
 void PLATFORM_setImeText(const char* text, int selStart, int selEnd) {}
 

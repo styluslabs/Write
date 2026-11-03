@@ -2,9 +2,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#include "ugui/svggui.h"
+#include "ulib/image.h"
 
-void initTouchInput(SDL_Window* sdlwin, bool useWintab);
-//bool touchInputFilter(SDL_Event* event);
-void setDPIAware();
 Image getClipboardImage();
+// Wintab (Wacom) pen input, for tablets w/o Windows Ink support; subclasses platform layer's window
+void initWintab(HWND hwnd);
+void shutdownWintab();

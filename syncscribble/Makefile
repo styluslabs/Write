@@ -87,14 +87,15 @@ DEFS += SCRIBBLE_REV_NUMBER="$(GITREV)"
 ifeq ($(OS),Windows_NT)
 # Windows
 
+# platform layer: ugui/platforms/winmain.cpp; Wintab (Wacom helper code) in windows/
 SOURCES += \
   windows/winhelper.cpp \
   windows/wintab/Utils.c \
+  ../ugui/platforms/winmain.cpp \
   ../nanovgXC/glad/glad.c
 
 RESOURCES = windows/resources.rc
-INCSYS += ../SDL/include
-DEFS += SCRIBBLE_TEST_PATH="\"$(CURDIR)/../scribbletest\""
+DEFS += SVGGUI_NO_SDL SCRIBBLE_TEST_PATH="\"$(CURDIR)/../scribbletest\""
 DEFS += _USE_MATH_DEFINES UNICODE NOMINMAX FONS_WPATH
 
 # only dependencies under this path will be tracked in .d files; note [\\] must be used for "\"
@@ -103,24 +104,14 @@ FWDSLASH := /
 BACKSLASH_ESC := [\\]
 DEPENDBASE ?= $(subst $(FWDSLASH),$(BACKSLASH_ESC),$(abspath ..))
 
-# shell32 for ShellExecute; user32 for clipboard fns; libs below opengl32.lib needed only for static SDL
+# ws2_32 for sockets; shell32 for ShellExecute, CommandLineToArgvW, drag and drop; imm32 for IME
 LIBS = \
   ws2_32.lib \
   shell32.lib \
   user32.lib \
-  glu32.lib \
-  opengl32.lib \
   gdi32.lib \
-  winmm.lib \
-  ole32.lib \
-  oleaut32.lib \
-  advapi32.lib \
-  setupapi.lib \
-  imm32.lib \
-  version.lib
-
-SDL_LIB ?= ../SDL/Release/SDL2.lib
-LIBS += $(SDL_LIB)
+  opengl32.lib \
+  imm32.lib
 
 FORCECPP = ../layout/layout.obj
 
