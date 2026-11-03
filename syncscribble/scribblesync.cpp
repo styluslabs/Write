@@ -4,6 +4,7 @@
 #include "application.h"
 #include "scribbledoc.h"
 #include "scribbleapp.h"
+#include "ugui/svggui_util.h"  // SDL_RegisterEvents
 
 // shared whiteboarding
 // - for now, server is trivial: just rebroadcasts everything it receives

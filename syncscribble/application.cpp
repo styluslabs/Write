@@ -242,7 +242,7 @@ void Application::setupUIScale(float horzdpi)
 }
 
 
-int main(int argc, char* argv[])
+int appMain(int argc, char* argv[])
 {
   Application::runApplication = true;
 #if PLATFORM_WIN
@@ -323,10 +323,18 @@ int main(int argc, char* argv[])
   Uint32 winMaxFlag = (winGeom[4] || PLATFORM_EMSCRIPTEN) ? SDL_WINDOW_MAXIMIZED : 0;
   winGeom[0] += dispBounds.x;
   winGeom[1] += dispBounds.y; */
-  Application::WindowPos winrect =
+  WindowPos winrect =
       {int(winGeom[0]), int(winGeom[1]), int(winGeom[2]), int(winGeom[3]), int(winGeom[4]), int(winGeom[5])};
-  int ret = Application::platformSetup("Write", "Write", winrect);
-  if(ret) { return ret; }
+  bool wantGL = ScribbleApp::cfg->Int("glRender") && !PLATFORM_OSX && !PLATFORM_EMSCRIPTEN;
+  PlatformConfig platformCfg = {"Write", "Write", winrect,
+      (wantGL ? PlatformConfig::USE_GL : 0) | (sRGB ? PlatformConfig::SRGB : 0), 0};
+  Application::sdlWindow = platformInit(platformCfg);
+  if(!Application::sdlWindow) {
+    platformMessageBox("Error", "Unable to create window.");
+    return -1;
+  }
+  if(!(platformCfg.flags & PlatformConfig::USE_GL))
+    ScribbleApp::cfg->set("glRender", 0);
 
   //SDL_Window* sdlWindow = Application::sdlWindow;
 
@@ -479,6 +487,8 @@ int main(int argc, char* argv[])
   Application::gui = svgGui;
   svgGui->setWindowStylesheet(std::unique_ptr<SvgCssStylesheet>(createStylesheet()));
 
+  platformSetEventHandler(Application::sdlEvent);
+
   // maybe increase dpi by 1.5x if screen larger than 15 inches?
   Dim dpi = ScribbleApp::cfg->Int("screenDPI");
   Application::setupUIScale(dpi >= 10 && dpi <= 1200 ? dpi : 0);
@@ -516,7 +526,7 @@ int main(int argc, char* argv[])
     SCRIBBLE_LOG("\n**** RUNNING TESTS ****\n%s\n", scribbleApp->runTest("test").c_str());
 #endif
 
-  auto winpos = Application::platformGetWindowPos();
+  auto winpos = platformGetWindowPos();
   ScribbleApp::cfg->set("windowState", fstring("%d %d %d %d %d %d",
       winpos.x, winpos.y, winpos.w, winpos.h, winpos.maximized, winpos.display).c_str());
 
@@ -534,19 +544,35 @@ int main(int argc, char* argv[])
 //  free(swFB);
 //  swFB = NULL;  // SDL_main can be called again on Android(!)
 //#endif
-  Application::platformClose();  //  SDL_Quit();
+  platformSetEventHandler(NULL);
+  platformShutdown();
   unet_terminate();
   return 0;
 }
 
-void Application::setSWFramebuffer(void* dest, int w, int h, int rshift, int gshift, int bshift, int ashift)
+bool Application::processEvents()
 {
-  nvgswSetFramebuffer(painter->vg, dest, w, h, rshift, gshift, bshift, ashift);
+  return platformProcessEvents(true) && runApplication;
 }
 
 void Application::layoutAndDraw()
 {
-  Application::drawFrame();
+  if(isSuspended) return;
+  int w = 0, h = 0;
+  if(glRender)
+    SDL_GetWindowSize(sdlWindow, &w, &h);
+  else {
+    static PlatformFramebuffer prevFB = {};
+    PlatformFramebuffer fb = platformGetSWFramebuffer();
+    if(!fb.pixels) return;
+    if(fb.pixels != prevFB.pixels || fb.width != prevFB.width || fb.height != prevFB.height) {
+      nvgswSetFramebuffer(painter->vg, fb.pixels, fb.width, fb.height, fb.rshift, fb.gshift, fb.bshift, fb.ashift);
+      prevFB = fb;
+    }
+    w = fb.width;  h = fb.height;
+  }
+  if(layoutAndDraw(w, h))
+    platformPresent();
 }
 
 bool Application::layoutAndDraw(int w, int h)
@@ -692,7 +718,7 @@ bool Application::layoutAndDrawGL(int fbWidth, int fbHeight)
   else
     TRACE(painter->endFrame());
 
-  TRACE(SDL_GL_SwapWindow(sdlWindow));
+  // caller presents (platformPresent())
   TRACE_FLUSH();
 
   // workaround for bug on Android ... due to SDL threading? only on some devices? WTF!?!

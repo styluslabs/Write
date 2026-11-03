@@ -2,7 +2,6 @@
 #include "ugui/svggui.h"
 #include "usvg/svgwriter.h"
 
-#include "application.h"
 #include "ulib/fileutil.h"
 #include "ulib/stringutil.h"
 //#include "linuxPlatform.h"
@@ -27,6 +26,9 @@
 #include <X11/Xatom.h>
 #include <X11/extensions/XInput2.h>
 #include <malloc.h>
+#include <mutex>
+#include <deque>
+#include <thread>
 
 // XShm
 #include <X11/Xutil.h>
@@ -51,6 +53,14 @@ struct SDL_Window {
 };
 
 static SDL_Window xContext;
+
+// events pushed by app (possibly from other threads) via SDL_PushEvent/SDL_PeepEvents
+static std::mutex eventQueueMutex;
+static std::deque<SDL_Event> eventQueue;
+static std::thread::id mainThreadId;
+static void (*eventHandler)(SDL_Event*) = NULL;
+
+void platformSetEventHandler(void (*fn)(SDL_Event*)) { eventHandler = fn; }
 
 static struct {
   Atom absX, absY, absP, tiltX, tiltY,
@@ -150,18 +160,35 @@ void SDL_GL_SwapWindow(SDL_Window* win)
   glXSwapBuffers(xContext.dpy, xContext.win);
 }
 
-int SDL_PushEvent(SDL_Event* event)
-{
-  Application::sdlEvent(event);
-  return 1;
-}
-
 int SDL_PeepEvents(SDL_Event* events, int numevents, SDL_eventaction action, Uint32 minType, Uint32 maxType)
 {
   if(action != SDL_ADDEVENT) return 0;
-  for(int ii = 0; ii < numevents; ++ii)
-    Application::sdlEvent(&events[ii]);
+  {
+    std::lock_guard<std::mutex> lock(eventQueueMutex);
+    eventQueue.insert(eventQueue.end(), events, events + numevents);
+  }
+  if(std::this_thread::get_id() != mainThreadId)
+    PLATFORM_WakeEventLoop();
   return numevents;
+}
+
+int SDL_PushEvent(SDL_Event* event)
+{
+  return SDL_PeepEvents(event, 1, SDL_ADDEVENT, 0, 0);
+}
+
+// dispatch without holding lock, since handler may push events or enter nested event loop
+static bool dispatchQueuedEvent()
+{
+  SDL_Event event;
+  {
+    std::lock_guard<std::mutex> lock(eventQueueMutex);
+    if(eventQueue.empty()) { return false; }
+    event = eventQueue.front();
+    eventQueue.pop_front();
+  }
+  if(eventHandler) { eventHandler(&event); }
+  return true;
 }
 
 // https://github.com/H-M-H/Weylus can be used to send pen input from browser supporting pointer events to
@@ -934,7 +961,7 @@ static void processX11Event(XEvent* xevent)
       XGetWindowProperty(xContext.dpy, xContext.win, xevent->xselection.property, 0, LONG_MAX, False,
                          AnyPropertyType, &actualType, &actualFormat, &nItems, &bytesAfter, &data);
       if (data) {
-        auto lines = splitStr(std::string((char*)data, nItems), "\r\n", true);
+        auto lines = splitStr<std::vector>(std::string((char*)data, nItems), "\r\n", true);
         for(const std::string& line : lines) {
           if(line.front() == '#') { continue; }
           SDL_Event event = {0};
@@ -1076,9 +1103,9 @@ static int glxFbAttribs[] = {
   GLX_ALPHA_SIZE      , 8,
   GLX_DEPTH_SIZE      , 24,
   GLX_STENCIL_SIZE    , 8,
-  GLX_SAMPLE_BUFFERS  , True,
-  GLX_SAMPLES         , 4,
 #endif
+  GLX_SAMPLE_BUFFERS  , False,  // set by platformInit() from PlatformConfig::msaa
+  GLX_SAMPLES         , 0,
   None
 };
 
@@ -1089,47 +1116,89 @@ static int glxCtxAttribs[] = {
   None
 };
 
-bool Application::processEvents()
+// reentrant: may be called from eventHandler (nested event loop)
+bool platformProcessEvents(bool wait)
 {
-  do {
+  for(;;) {
+    bool any = false;
+    while(XPending(xContext.dpy)) {
+      XEvent xevent = {};
+      XNextEvent(xContext.dpy, &xevent);
+      processX11Event(&xevent);
+      any = true;
+    }
+    while(dispatchQueuedEvent()) { any = true; }
+    if(any || !wait) { break; }
+    // block until next X event (PLATFORM_WakeEventLoop sends one when events are pushed from other threads)
     XEvent xevent = {};
     XNextEvent(xContext.dpy, &xevent);
     processX11Event(&xevent);
-  } while(runApplication && XPending(xContext.dpy));
-
-  return runApplication;
+    wait = false;  // got an event; drain anything else pending and return
+  }
+  return true;
 }
 
 static XShmSegmentInfo shminfo;
 
-void Application::drawFrame()
+PlatformFramebuffer platformGetSWFramebuffer()
 {
   int w = xContext.width, h = xContext.height;
-  if(Application::glRender) {
-    if(Application::layoutAndDraw(w, h)) //app->drawFrame(xContext.width, xContext.height))
-      glXSwapBuffers(xContext.dpy, xContext.win);
+  if(w <= 0 || h <= 0) { return PlatformFramebuffer{}; }
+  if(!xContext.img || xContext.img->width != w || xContext.img->height != h) {
+    if(xContext.img) { deleteShmImage(xContext.dpy, xContext.img, &shminfo); }
+    int depth = DefaultDepth(xContext.dpy, DefaultScreen(xContext.dpy));
+    xContext.img = createShmImage(xContext.dpy, xContext.vis, depth, w, h, &shminfo);
   }
-  else {
-    if(!xContext.img || xContext.img->width != w || xContext.img->height != h) {
-      if(xContext.img) { deleteShmImage(xContext.dpy, xContext.img, &shminfo); }
-      int depth = DefaultDepth(xContext.dpy, DefaultScreen(xContext.dpy));
-      xContext.img = createShmImage(xContext.dpy, xContext.vis, depth, w, h, &shminfo);
-      setSWFramebuffer(xContext.img->data, w, h, 16, 8, 0, 24);  //nvgswSetFramebuffer(Application::painter->vg,
-    }
-    if(Application::layoutAndDraw(w, h)) {
-      XShmPutImage(xContext.dpy, xContext.win, xContext.gc, xContext.img, 0, 0, 0, 0, w, h, False);
-      XSync(xContext.dpy, False);
-    }
-  }
-
+  return PlatformFramebuffer{xContext.img->data, w, h, 16, 8, 0, 24};
 }
 
-//extern int SDL_main(int argc, char* argv[]);
-
-enum WindowFlags { USE_GL = 1, GL_VSYNC = 1<<1, GL_SHARED_CTX = 1<<2 };
-
-int Application::platformSetup(const char* wintitle, const char* winclass, WindowPos winrect, size_t flags)
+void platformPresent()
 {
+  if(!xContext.img)  // GL
+    glXSwapBuffers(xContext.dpy, xContext.win);
+  else {
+    XShmPutImage(xContext.dpy, xContext.win, xContext.gc, xContext.img,
+        0, 0, 0, 0, xContext.img->width, xContext.img->height, False);
+    XSync(xContext.dpy, False);
+  }
+}
+
+// GL setup; returns visual info for window creation or NULL on failure
+static XVisualInfo* initGLX(Display* xDpy, int mainScr, PlatformConfig& cfg, GLXContext* ctxOut)
+{
+  if(!glXQueryExtension(xDpy, NULL, NULL)) { LOGE("glXQueryExtension() failed."); return NULL; }
+
+  // don't bother with GLAD GLX loader for just a few fns
+  auto glXCreateContextAttribsARB =
+      (PFNGLXCREATECONTEXTATTRIBSARBPROC)glXGetProcAddress((const GLubyte*)"glXCreateContextAttribsARB");
+  if(!glXCreateContextAttribsARB) { LOGE("glXGetProcAddress() failed"); return NULL; }
+
+  int nattribs = sizeof(glxFbAttribs)/sizeof(glxFbAttribs[0]);
+  glxFbAttribs[nattribs - 4] = cfg.msaa > 0 ? True : False;  // GLX_SAMPLE_BUFFERS
+  glxFbAttribs[nattribs - 2] = cfg.msaa > 0 ? cfg.msaa : 0;  // GLX_SAMPLES
+  int fbcount = 0;
+  GLXFBConfig* fbConfigs = glXChooseFBConfig(xDpy, mainScr, glxFbAttribs, &fbcount);  //glXChooseVisual
+  if(!fbConfigs || fbcount < 1) { LOGE("glXChooseFBConfig() failed"); return NULL; }
+  XVisualInfo* xVisInfo = glXGetVisualFromFBConfig(xDpy, fbConfigs[0]);
+  if(!xVisInfo) { LOGE("glXGetVisualFromFBConfig() failed"); XFree(fbConfigs); return NULL; }
+  GLXContext mainCtx = glXCreateContextAttribsARB(xDpy, fbConfigs[0], NULL, true, glxCtxAttribs);
+  if(!mainCtx) { LOGE("glXCreateContextAttribsARB() failed"); XFree(fbConfigs); XFree(xVisInfo); return NULL; }
+  if(cfg.flags & PlatformConfig::GL_SHARED_CTX) {
+    GLXContext auxCtx = glXCreateContextAttribsARB(xDpy, fbConfigs[0], mainCtx, true, glxCtxAttribs);
+    if(!auxCtx) { LOGE("glXCreateContext() failed for offscreen context"); }  // TODO: return auxCtx to caller
+  }
+  XFree(fbConfigs);
+  *ctxOut = mainCtx;
+  return xVisInfo;
+}
+
+PlatformWindow* platformInit(PlatformConfig& cfg)
+{
+  mainThreadId = std::this_thread::get_id();
+  const char* wintitle = cfg.title;
+  const char* winclass = cfg.winClass;
+  WindowPos winrect = cfg.pos;
+
   //initBaseDir(argc > 0 ? argv[0] : NULL);
   /*
   MapsApp::loadConfig("");
@@ -1147,9 +1216,10 @@ int Application::platformSetup(const char* wintitle, const char* winclass, Windo
   }
   */
 
-  XInitThreads();  // seems this might be required due to glXMakeCurrent for offscreen worker
+  XInitThreads();  // required since PLATFORM_WakeEventLoop() can be called from other threads
   // window setup
   Display* xDpy = XOpenDisplay(0);
+  if(!xDpy) { LOGE("XOpenDisplay() failed"); return NULL; }
   xContext.dpy = xDpy;
   int mainScr = XDefaultScreen(xDpy);
   Window rootWin = XDefaultRootWindow(xDpy);
@@ -1171,30 +1241,15 @@ int Application::platformSetup(const char* wintitle, const char* winclass, Windo
   Visual* xVis = NULL;
   int visdepth = CopyFromParent;
   GLXContext mainCtx = NULL;
-  if(flags & USE_GL) {
-    if(!glXQueryExtension(xDpy, NULL, NULL)) { LOGE("glXQueryExtension() failed."); return -1; }
-
-    // don't bother with GLAD GLX loader for just a few fns (we still use GLAD for GL functions)
-    auto glXCreateContextAttribsARB =
-        (PFNGLXCREATECONTEXTATTRIBSARBPROC)glXGetProcAddress((const GLubyte*)"glXCreateContextAttribsARB");
-    if(!glXCreateContextAttribsARB) { LOGE("glXGetProcAddress() failed"); return -1; }
-
-    int fbcount = 0;
-    GLXFBConfig* fbConfigs = glXChooseFBConfig(xDpy, mainScr, glxFbAttribs, &fbcount);  //glXChooseVisual
-    if(!fbConfigs) { LOGE("glXChooseFBConfig() failed"); return -1; }
-    XVisualInfo* xVisInfo = glXGetVisualFromFBConfig(xDpy, fbConfigs[0]);
-    if(!xVisInfo) { LOGE("glXGetVisualFromFBConfig() failed"); return -1; }
-    mainCtx = glXCreateContextAttribsARB(xDpy, fbConfigs[0], NULL, true, glxCtxAttribs);
-    //GLXContext mainCtx = glXCreateContext(xDpy, xVisual, None, True);
-    if(!mainCtx) { LOGE("glXCreateContextAttribsARB() failed"); return -1; }
-    if(flags & GL_SHARED_CTX) {
-      GLXContext auxCtx = glXCreateContextAttribsARB(xDpy, fbConfigs[0], mainCtx, true, glxCtxAttribs);
-      if(!auxCtx) { LOGE("glXCreateContext() failed for offscreen context"); return -1; }
-    }
+  XVisualInfo* xVisInfo = (cfg.flags & PlatformConfig::USE_GL) ? initGLX(xDpy, mainScr, cfg, &mainCtx) : NULL;
+  if(xVisInfo) {
     xVis = xVisInfo->visual;
     visdepth = xVisInfo->depth;
+    XFree(xVisInfo);
   }
   else {
+    if(cfg.flags & PlatformConfig::USE_GL) { LOGE("OpenGL setup failed - falling back to software rendering"); }
+    cfg.flags &= ~(PlatformConfig::USE_GL | PlatformConfig::GL_VSYNC | PlatformConfig::GL_SHARED_CTX);
     xContext.gc = DefaultGC(xDpy, mainScr);
     xVis = xContext.vis = DefaultVisual(xDpy, mainScr);
   }
@@ -1259,12 +1314,17 @@ int Application::platformSetup(const char* wintitle, const char* winclass, Windo
     //gladLoadGL();
     const char* glXexts = glXQueryExtensionsString(xDpy, DefaultScreen(xDpy));
 
-    if(flags & GL_VSYNC) {
+    if(cfg.flags & PlatformConfig::GL_VSYNC) {
       auto glXSwapIntervalEXT =
           (PFNGLXSWAPINTERVALEXTPROC) glXGetProcAddress((const GLubyte*)"glXSwapIntervalEXT");
-      if(!glXSwapIntervalEXT) { LOGE("glXGetProcAddress() failed"); return -1; }
-      int dfltswap = strstr(glXexts, "GLX_EXT_swap_control_tear") ? -1 : 1;
-      glXSwapIntervalEXT(xDpy, xWin, dfltswap);
+      if(!glXSwapIntervalEXT) {
+        LOGE("glXSwapIntervalEXT not available - vsync disabled");
+        cfg.flags &= ~PlatformConfig::GL_VSYNC;
+      }
+      else {
+        int dfltswap = strstr(glXexts, "GLX_EXT_swap_control_tear") ? -1 : 1;
+        glXSwapIntervalEXT(xDpy, xWin, dfltswap);
+      }
     }
   }
 
@@ -1294,13 +1354,7 @@ int Application::platformSetup(const char* wintitle, const char* winclass, Windo
   xContext.width = winAttrs.width;
   xContext.height = winAttrs.height;
 
-  Application::sdlWindow = &xContext;
-
-  // SW rendering
-  //int depth = DefaultDepth(xDpy, mainScr);
-  //XShmSegmentInfo shminfo;
-  //XImage* xImg = NULL;
-  return 0;
+  return &xContext;
 }
 
   /*
@@ -1415,7 +1469,7 @@ int Application::platformSetup(const char* wintitle, const char* winclass, Windo
   //int res = SDL_main(argc, argv);
 
 
-void Application::platformClose()
+void platformShutdown()
 {
   auto xDpy = xContext.dpy;
   auto xWin = xContext.win;
@@ -1429,10 +1483,12 @@ void Application::platformClose()
   if(xContext.img)
     deleteShmImage(xDpy, xContext.img, &shminfo);
 
+  xContext.img = NULL;
   XCloseDisplay(xDpy);
+  xContext.dpy = NULL;
 }
 
-Application::WindowPos Application::platformGetWindowPos()
+WindowPos platformGetWindowPos()
 {
   XWindowAttributes winAttrs;
   XGetWindowAttributes(xContext.dpy, xContext.win, &winAttrs);
@@ -1511,3 +1567,13 @@ void platformMessageBox(std::string title, std::string msg)
 //{
 //  MessageBoxA(parent, msg.c_str(), title.c_str(), MB_OK | MB_ICONINFORMATION);
 //}
+
+bool platformOpenURL(const char* url)
+{
+  return system(fstring("xdg-open '%s' || x-www-browser '%s' &", url, url).c_str()) == 0;
+}
+
+int main(int argc, char* argv[])
+{
+  return appMain(argc, argv);
+}

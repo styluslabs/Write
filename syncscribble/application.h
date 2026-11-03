@@ -18,10 +18,10 @@ public:
   static SvgGui* gui;
 
   static void setupUIScale(float horzdpi = 0);
+  // process pending events (blocking until at least one); for nested event loops
   static bool processEvents();
-  static bool layoutAndDrawSW(int w, int h);
-  static bool layoutAndDrawGL(int w, int h);
   static bool layoutAndDraw(int w, int h);
+  // layout and draw window, then present to screen if anything changed
   static void layoutAndDraw();
   static void execWindow(Window* w);
   static int execDialog(Dialog* dialog);
@@ -29,15 +29,11 @@ public:
   static void finish() { runApplication = false; }
 
   static void sdlEvent(SDL_Event* event);
-  static void drawFrame();
-  static void setSWFramebuffer(void* dest, int w, int h, int rshift, int gshift, int bshift, int ashift);
-
-  struct WindowPos { int x, y, w, h, maximized, display; };
-  static int platformSetup(const char* wintitle, const char* winclass, WindowPos winrect);
-  static WindowPos platformGetWindowPos();
-  static void platformClose();
 
 //private:
+  static bool layoutAndDrawSW(int w, int h);
+  static bool layoutAndDrawGL(int w, int h);
+
   static bool runApplication;
   static bool glRender;
   static bool isSuspended;

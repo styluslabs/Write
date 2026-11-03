@@ -288,7 +288,7 @@ DEBUG ?= 0
 # must use this instead of just -lpthread so the defines needed by force_glibc.h are created
 CFLAGS = -pthread
 # X11 and Xi needed for linuxtablet.c
-LIBS += -pthread -ldl -lX11 -lXi -lXext -lOpenGL -lGLX
+LIBS += -pthread -ldl -lX11 -lXi -lXext -lXcursor -lOpenGL -lGLX
 
 # distribution package
 TGZ = write$(GITCOUNT).tar.gz
