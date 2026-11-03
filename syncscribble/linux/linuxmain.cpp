@@ -208,10 +208,26 @@ void SDL_free(void* mem) { free(mem); }
 static SDL_Keymod currKeymod = KMOD_NONE;
 SDL_Keymod SDL_GetModState() { return currKeymod; }
 
+// text input is active by default on desktop (as in SDL); while inactive, SDL_TEXTINPUT events are not sent
+//  and the input context is unfocused so the input method doesn't intercept key events (e.g. shortcuts)
+static bool textInputActive = true;
+
+// IC uses XIMPreeditNothing, so input method positions its own preedit/candidate window and ignores spot
+//  location; to support positioning, we'd need XIMPreeditPosition (over-the-spot) w/ XNSpotLocation
 void SDL_SetTextInputRect(SDL_Rect* rect) {}
-SDL_bool SDL_IsTextInputActive() { return SDL_FALSE; }
-void SDL_StartTextInput() {}
-void SDL_StopTextInput() {}
+SDL_bool SDL_IsTextInputActive() { return textInputActive ? SDL_TRUE : SDL_FALSE; }
+
+void SDL_StartTextInput()
+{
+  textInputActive = true;
+  if(xContext.ic) { XSetICFocus(xContext.ic); }
+}
+
+void SDL_StopTextInput()
+{
+  textInputActive = false;
+  if(xContext.ic) { XUnsetICFocus(xContext.ic); }
+}
 
 void SDL_RaiseWindow(SDL_Window* window) {}
 void SDL_SetWindowTitle(SDL_Window* win, const char* title) {}
@@ -1008,7 +1024,7 @@ static void processX11Event(XEvent* xevent)
     event.key.keysym.mod = currKeymod;
     event.key.windowID = 0;  //keyboard->focus ? keyboard->focus->id : 0;
     SDL_PushEvent(&event);
-    if (xevent->type != KeyPress || filtered) { break; }
+    if (xevent->type != KeyPress || filtered || !textInputActive) { break; }
     std::string buff(32, '\0');
     Status status;
     int count = Xutf8LookupString(xContext.ic, &xevent->xkey, (char*)buff.data(), buff.size(), NULL, &status);
@@ -1457,7 +1473,7 @@ PlatformWindow* platformInit(PlatformConfig& cfg)
   }
   xContext.ic = XCreateIC(xIM, XNInputStyle,
       XIMPreeditNothing | XIMStatusNothing, XNClientWindow, xWin, XNFocusWindow, xWin, NULL);
-  XSetICFocus(xContext.ic);
+  if(textInputActive) { XSetICFocus(xContext.ic); }
 
   initKeycodeToSDLK();
 
