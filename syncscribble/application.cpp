@@ -731,10 +731,12 @@ bool Application::layoutAndDrawGL(int fbWidth, int fbHeight)
   //  note that SDL surfaceChanged() reports RGB_565 (default for non-GL), but GL surface is always RGBA_8888
 #if PLATFORM_ANDROID
   if(oldDeviceRect != painter->deviceRect) {
+    // present now, then blit again so caller presents same frame a second time (contents of back buffer
+    //  are undefined after swap)
     PLATFORM_LOG("Performing extra GL_SwapWindow due to FB size change\n");
+    TRACE(platformPresent());
     int prev = nvgluBindFramebuffer(nvglFB);
     TRACE(nvgluBlitFramebuffer(nvglFB, prev));  // blit to prev FBO and rebind it
-    TRACE(SDL_GL_SwapWindow(sdlWindow));
   }
 #endif
   return true;
