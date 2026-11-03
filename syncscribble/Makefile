@@ -154,8 +154,9 @@ include Makefile.mac
 else ifneq ($(XPC_FLAGS),)
 # iOS (XPC_FLAGS seems to be defined on macOS)
 
-SOURCES += ios/ioshelper.m
-DEFS += GLES_SILENCE_DEPRECATION
+# platform layer: ugui/platforms/iosApp.mm (app's main() and UIApplication delegate)
+SOURCES += ios/ioshelper.m ../ugui/platforms/iosApp.mm
+DEFS += SVGGUI_NO_SDL GLES_SILENCE_DEPRECATION
 XIB = ios/LaunchView.xib
 # app store now requires app icon be in an asset catalog
 XCASSETS = ../scribbleres/Assets.xcassets
@@ -191,15 +192,7 @@ else
   CODESIGN = /usr/bin/codesign --force --sign 55648202533A2234B7ED12254A2C271BC52ACED187E0 --timestamp=none
 endif
 
-INCSYS += /Users/mwhite/styluslabs/SDL/include
-FRAMEWORKS = AVFoundation GameController CoreMotion Foundation UIKit CoreGraphics OpenGLES QuartzCore CoreAudio AudioToolbox Metal StoreKit
-
-SIM ?= 0
-ifneq ($(SIM), 0)
-  LIBS = ../SDL/SimDebug/libSDL2.a
-else
-  LIBS = ../SDL/Release/libSDL2.a
-endif
+FRAMEWORKS = Foundation UIKit CoreGraphics OpenGLES QuartzCore StoreKit
 
 IAP ?= 0
 ifneq ($(IAP), 0)

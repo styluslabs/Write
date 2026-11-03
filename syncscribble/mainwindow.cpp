@@ -470,7 +470,7 @@ void MainWindow::orientationChanged()
     // this will only matter for initial call (before ScribbleAreas are created)
     scribbleAreaStatusInset.y = std::min(std::max(bottom, 6.0f), 18.0f);
   }
-  statusBarBG->setVisible(!(SDL_GetWindowFlags(sdlWindow) & SDL_WINDOW_FULLSCREEN));
+  statusBarBG->setVisible(!(actionFullscreen && actionFullscreen->isChecked()));
 #endif
 }
 

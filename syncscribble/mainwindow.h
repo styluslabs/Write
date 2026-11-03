@@ -112,7 +112,7 @@ public:
   Action* actionOverflow_Menu;
   Action* actionSelection_Menu;
   Action* actionTools_Menu;
-  Action* actionFullscreen;
+  Action* actionFullscreen = NULL;
   Action* actionSplitView;
   Action* actionSelect_Pages;
   Action* actionViewSync;

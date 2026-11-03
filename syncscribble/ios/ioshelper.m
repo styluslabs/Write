@@ -1,31 +1,15 @@
 #import <UIKit/UIKit.h>
 #import <StoreKit/StoreKit.h>
 #include "ioshelper.h"
-#include "ugui/svggui_platform.h"  // for SDL and pen ids
+#include "ugui/svggui_platform.h"  // for SDL events
+#include "ugui/platforms/iosApp.h"
 
 static const char* kUTTypeJPEG = "public.jpeg";
 // #import <MobileCoreServices/MobileCoreServices.h>
 
-// w/ UIDocumentBrowser, SDL VC is no longer root (but still must be be used to present, e.g. image picker)
+// platform layer's (ugui/platforms/iosApp.mm) view controller; w/ UIDocumentBrowser, it is no longer root (but
+//  still must be be used to present, e.g. image picker)
 static UIViewController* sdlViewController = nil;
-static CFRunLoopRef mainRunLoop = NULL;
-
-void iosPumpEventsBlocking(void)
-{
-  if(!mainRunLoop)
-    mainRunLoop = CFRunLoopGetCurrent();
-  CFRunLoopRunInMode(kCFRunLoopDefaultMode, 100, TRUE);
-  //int result;
-  //do {
-  //  result = CFRunLoopRunInMode(kCFRunLoopDefaultMode, 10, TRUE);  // 10 seconds
-  //} while (result == kCFRunLoopRunTimedOut);
-}
-
-void iosWakeEventLoop(void)
-{
-  if(mainRunLoop)
-    CFRunLoopStop(mainRunLoop);
-}
 
 static void uiImagePicked(UIImage* image, BOOL isJpeg, int fromclip)
 {
@@ -304,116 +288,8 @@ int iosSafeAreaInsets(float* top, float* bottom)
   return 1;
 }
 
-// status bar color - for use with UIViewControllerBasedStatusBarAppearance = true in Info.plist
-
-#import "SDL/src/video/uikit/SDL_uikitviewcontroller.h"
-//@interface SDL_uikitviewcontroller(StatusBar) @end  ... doesn't seem to be necessary
-
-@implementation SDL_uikitviewcontroller(StatusBar)
-
-- (UIStatusBarStyle)preferredStatusBarStyle
-{
-  return UIStatusBarStyleLightContent;
-}
-
-@end
-
-// touch input
-
-#import "SDL/src/video/uikit/SDL_uikitview.h"
-
-@implementation SDL_uikitview(Pencil)
-//static float prevForce = -1;
-
-- (void)sendTouchEvent:(UITouch *)touch ofType:(int)eventType forFinger:(size_t)fingerId
-{
-  SDL_TouchID touchId = touch.type == UITouchTypeStylus ? PenPointerPen : 1;
-  CGPoint pos = [touch preciseLocationInView:self];
-  // without % INT_MAX, ts gets clamped to INT_MAX and kinetic scroll breaks after ~24 days
-  int ts = (int)((long long)([touch timestamp]*1000.0 + 0.5) % INT_MAX);
-  // touch.force / touch.maximumPossibleForce? - force is normalized so that 1.0 is normal force but can
-  //  be greater than 1, while StrokeBuilder clamps pressure to 1
-  // ... for now, just divide by 2 since 0.5 is typical pressure on other platforms
-  float pressure = (touchId == PenPointerPen || touch.force > 0) ? (float)touch.force/2 : 1.0f;
-  // we'll use diameter instead of radius (closer to Windows, Android)
-  float w = 2*touch.majorRadius;
-
-  SDL_Event event = {0};
-  event.type = eventType;
-  event.tfinger.timestamp = ts;  //SDL_GetTicks();  // normally done by SDL_PushEvent()
-  event.tfinger.touchId = touchId;
-  event.tfinger.fingerId = touchId == PenPointerPen ? SDL_BUTTON_LMASK : (SDL_FingerID)fingerId;
-  event.tfinger.x = pos.x;
-  event.tfinger.y = pos.y;
-  // size of touch point
-  event.tfinger.dx = w;
-  event.tfinger.dy = w - 2*touch.majorRadiusTolerance;  // for now, Write just uses larger axis, so this has no effect
-  event.tfinger.pressure = pressure;
-  // PeepEvents bypasses gesture recognizer and event filters
-  SDL_PeepEvents(&event, 1, SDL_ADDEVENT, 0, 0);  //SDL_PushEvent(&event);
-  //const char* evname = eventType == SDL_FINGERDOWN ? "SDL_FINGERDOWN" : (eventType == SDL_FINGERUP ? "SDL_FINGERUP"
-  //    : (eventType == SVGGUI_FINGERCANCEL ? "SVGGUI_FINGERCANCEL" : "SDL_FINGERMOTION"));
-  //NSLog(@"%s touch: %f, %f; force %f; radius %f; time %d", evname, pos.x, pos.y, touch.force, touch.majorRadius, ts);
-}
-
-//- (void)touchesEstimatedPropertiesUpdated:(NSSet *)touches
-//{
-//  //if(waitForForceUpdate > 1)
-//  //  waitForForceUpdate = 1;
-//}
-
-- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event
-{
-  for (UITouch* touch in touches)
-    [self sendTouchEvent:touch ofType:SDL_FINGERDOWN forFinger:(size_t)touch];
-}
-
-- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event
-{
-  for (UITouch* touch in touches)
-    [self sendTouchEvent:touch ofType:SDL_FINGERUP forFinger:(size_t)touch];
-}
-
-- (void)touchesCancelled:(NSSet *)touches withEvent:(UIEvent *)event
-{
-  for (UITouch* touch in touches)
-    [self sendTouchEvent:touch ofType:SVGGUI_FINGERCANCEL forFinger:(size_t)touch];
-}
-
-- (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event
-{
-  for (UITouch* touch in touches) {
-    NSArray<UITouch*>* cTouches = [event coalescedTouchesForTouch:touch];
-    for (UITouch* cTouch in cTouches)
-      [self sendTouchEvent:cTouch ofType:SDL_FINGERMOTION forFinger:(size_t)touch];
-  }
-}
-
-// TODO: try this once we upgrade xcode for iOS 13.4+
-// ref: https://github.com/utmapp/UTM/issues/223 and linked PR
-// UIPanGestureRecognizer is apparently the only way to get magic keyboard touchpad scroll events
-// alternative approach would be to send locationInView as mouse motion events, and force mouse mode to pan
-/*- (IBAction)gestureScroll:(UIPanGestureRecognizer *)sender API_AVAILABLE(ios(13.4))
-{
-  //CGPoint pos = [sender locationInView:sender.view];
-  //CGPoint velocity = [sender velocityInView:sender.view];
-  static CGPoint dr0;
-  CGPoint dr = [sender translationInView:sender.view];
-  if (sender.state == UIGestureRecognizerStateBegan) dr0 = {0,0};
-
-  SDL_Event event = {0};
-  event.type = SDL_MOUSEWHEEL;
-  event.wheel.timestamp = SDL_GetTicks();  // gesture recognizer doesn't provide timestamp?
-  event.wheel.windowID = 0;
-  event.wheel.which = 0;  //SDL_TOUCH_MOUSEID;
-  event.wheel.x = dr.x - dr0.x;
-  event.wheel.y = dr.y - dr0.y;
-  event.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
-  SDL_PeepEvents(&event, 1, SDL_ADDEVENT, 0, 0);
-  dr0 = dr;
-}*/
-
-@end
+// status bar color (UIViewControllerBasedStatusBarAppearance = true in Info.plist) is set in
+//  initDocumentBrowser(); touch input is handled by platform layer
 
 // WriteDocument : UIDocument
 
@@ -608,23 +484,14 @@ int iosSafeAreaInsets(float* top, float* bottom)
 
 @end
 
-// opening "dropped" files
-#import "SDL/src/video/uikit/SDL_uikitappdelegate.h"
-
-@interface SDLUIKitDelegate(Drop)
-
-- (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options;
-
-@end
-
-@implementation SDLUIKitDelegate(Drop)
-
-- (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options
+// opening "dropped" files - application:openURL:options: handler (registered in initDocumentBrowser)
+static int openURLHandler(void* nsurl)
 {
+  NSURL* url = (__bridge NSURL*)nsurl;
   if(!url.isFileURL)
-    return NO;
+    return 0;
   // What is the point of this? Can't we just create UIDocument directly?
-  DocumentBrowser* docBrowser = (DocumentBrowser*)self.window.rootViewController;
+  DocumentBrowser* docBrowser = (DocumentBrowser*)UIApplication.sharedApplication.delegate.window.rootViewController;
   if(docBrowser.presentedViewController)
     [docBrowser.presentedViewController dismissViewControllerAnimated:NO completion:nil];
   [docBrowser revealDocumentAtURL:url importIfNeeded:YES completion:^(NSURL* _Nullable revealedURL, NSError* _Nullable error) {
@@ -636,10 +503,8 @@ int iosSafeAreaInsets(float* top, float* bottom)
     if(revealedURL && !error && !docBrowser.presentedViewController)
       [docBrowser presentDocumentAtURL:revealedURL];
   }];
-  return YES;
+  return 1;
 }
-
-@end
 
 // Document picker for insert doc
 @interface DocumentPicker : UIDocumentPickerViewController
@@ -739,9 +604,10 @@ void initDocumentBrowser(const char* bkmkBase64)
 {
   DocumentBrowser* browser = [[DocumentBrowser alloc] initForOpeningFilesWithContentTypes:@[@"public.svg-image"]];
   UIWindow* sdlUIWindow = UIApplication.sharedApplication.delegate.window;
-  sdlViewController = sdlUIWindow.rootViewController;
+  sdlViewController = (__bridge UIViewController*)iosPlatform_viewController();
   sdlUIWindow.rootViewController = nil;
   sdlUIWindow.rootViewController = browser;
+  iosPlatform_setStatusBarStyle(1);  // light content
   // fullscreen was the default prior to iOS 13
   sdlViewController.modalPresentationStyle = UIModalPresentationFullScreen;
   // "Create Document"
@@ -803,6 +669,9 @@ void initDocumentBrowser(const char* bkmkBase64)
         [browser presentDocumentAtURL:url];
     }
   }
+
+  // opening files from other apps; set last since any URL received at launch is handled immediately
+  iosPlatform_setOpenURLHandler(openURLHandler);
 }
 
 void showDocumentBrowser()

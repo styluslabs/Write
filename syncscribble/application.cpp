@@ -52,8 +52,8 @@
 //  high-DPI scaling on OSX (it just uses the window size)
 // SW renderer used on Android if GLES 3 not available; previously used GL blitter due to problems on old
 //  Samsung tablets w/ ANativeWindow_unlockAndPost, but now platform layer provides SW framebuffer
-// SW renderer only used on iOS when forced in config file; SDL surface doesn't support high-DPI on iOS
-#define USE_GL_BLITTER (PLATFORM_OSX || PLATFORM_IOS)  // || PLATFORM_EMSCRIPTEN)
+// SW renderer only used on iOS when forced in config file; platform layer provides SW framebuffer
+#define USE_GL_BLITTER (PLATFORM_OSX)  // || PLATFORM_EMSCRIPTEN)
 
 // possible regression on iOS 18.4, so safer to stick w/ framebuffer fetch for now
 #define USE_NANOVG_VTEX (!PLATFORM_IOS)
@@ -202,10 +202,14 @@ void Application::setupUIScale(float horzdpi)
   //  SDL_GL_GetDrawableSize(sdlWindow, &fbWidth, &fbHeight);
 
 #if PLATFORM_IOS
-  // SDL sets UIWindow.contentScaleFactor to UIScreen.nativeScale to use actual screen res on iPhone Plus, so
-  //  pxRatio (== nativeScale) can be non-integer (e.g. 2.6 for iPhone Plus)
-  pxRatio = float(fbWidth)/float(winWidth);  //int(float(fbWidth)/float(winWidth) + 0.5f);
-  horzdpi = horzdpi > 0 && horzdpi < 700 ? horzdpi : pxRatio * 150;
+  // platform layer reports window size in pixels; DPI is 163*(pixels per point), where pixels per point is
+  //  UIScreen.nativeScale, so can be non-integer (e.g. 2.6 for iPhone Plus); default UI scale is same as w/ SDL
+  //  (which reported window size in points): 150 dpi per point
+  if(horzdpi <= 0 || horzdpi >= 700) {
+    float sysdpi = 0;
+    SDL_GetDisplayDPI(0, NULL, &sysdpi, NULL);
+    horzdpi = sysdpi > 0 ? sysdpi*150/163 : 300;
+  }
 #elif PLATFORM_EMSCRIPTEN
   pxRatio = emscripten_get_device_pixel_ratio();
   horzdpi = horzdpi > 0 && horzdpi < 700 ? horzdpi : pxRatio * 150;

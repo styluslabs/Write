@@ -37,6 +37,7 @@ CC = $(CLANG) -x c
 CCFLAGS = --std=c99
 MC = $(CLANG) -x objective-c
 MFLAGS = -fobjc-arc
+MMC = $(CLANG) -x objective-c++
 # linker
 LD = $(CXX)
 LDFLAGS =
@@ -118,6 +119,9 @@ $(OBJDIR)/%.o: %.c
 
 $(OBJDIR)/%.o: %.m
 	$(MC) -c $(CFLAGS) $(MFLAGS) $(INCFLAGS) -o $@ $<
+
+$(OBJDIR)/%.o: %.mm
+	$(MMC) -c $(CFLAGS) $(CXXFLAGS) $(MFLAGS) $(INCFLAGS) -o $@ $<
 
 $(OBJDIR)/%.nib: %.xib
 	$(IBTOOL) --module $(TARGET) --compile $@ $<

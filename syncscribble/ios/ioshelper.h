@@ -4,8 +4,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-extern void iosPumpEventsBlocking(void);
-extern void iosWakeEventLoop(void);
 extern void showImagePicker(void);
 extern void iosOpenUrl(const char* url);
 extern void iosRequestReview(void);
