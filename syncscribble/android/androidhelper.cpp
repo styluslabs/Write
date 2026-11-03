@@ -10,10 +10,7 @@ ScribbleApp* AndroidHelper::mainWindowInst = NULL;
 bool AndroidHelper::acceptVolKeys = false;
 static const char className[] = "com/styluslabs/writeqt/MainActivity";
 
-// Note: see https://stackoverflow.com/questions/27424633/java-callback-from-c-with-android-and-sdl
-//  if you run into any problems
-
-// calls to Java
+// calls to Java (from app thread, which never returns to Java, so local refs must be freed explicitly)
 class AndroidMethod
 {
 public:
@@ -27,10 +24,11 @@ public:
     // retrieve the JNI environment
     env = (JNIEnv*)SDL_AndroidGetJNIEnv();
     if(!env) return;
-    // retrieve the Java instance of the SDLActivity
+    env->PushLocalFrame(16);
+    // retrieve the Java instance of the activity
     activity = (jobject)SDL_AndroidGetActivity();
     if(!activity) return;
-    // find the Java class of the activity. It should be SDLActivity or a subclass of it.
+    // find the Java class of the activity (com.styluslabs.writeqt.MainActivity)
     clazz = env->GetObjectClass(activity);
     if(!clazz) return;
     // find the identifier of the method to call
@@ -39,11 +37,9 @@ public:
 
   ~AndroidMethod()
   {
-    // clean up the local references.
-    if(activity)
-      env->DeleteLocalRef(activity);
-    if(clazz)
-      env->DeleteLocalRef(clazz);
+    if(!env) return;
+    if(env->ExceptionCheck()) { env->ExceptionDescribe(); env->ExceptionClear(); }
+    env->PopLocalFrame(NULL);  // frees activity, clazz, and any strings created for call
   }
 };
 
@@ -67,43 +63,6 @@ void AndroidHelper::processInitialIntent()
   AndroidMethod fn("processInitialIntent", "()V");
   if(!fn.method_id) return;
   fn.env->CallVoidMethod(fn.activity, fn.method_id);
-}
-
-void AndroidHelper::blitSurface(void* pixels, int width, int height, int x, int y, int w, int h)
-{
-  AndroidMethod fn("getSDLSurface", "()Landroid/view/Surface;");
-  if(!fn.method_id) return;
-  jobject jsurface = fn.env->CallObjectMethod(fn.activity, fn.method_id);
-  ANativeWindow* awin = ANativeWindow_fromSurface(fn.env, jsurface);
-  ANativeWindow_Buffer info;
-  //if(ANativeWindow_getWidth(awin) != width || ANativeWindow_getHeight(awin) != height)
-  ARect adirty = {x, y, x + w, y + h};
-  if(ANativeWindow_lock(awin, &info, &adirty) >= 0) {
-    if(info.width != width || info.height != height)
-      PLATFORM_LOG("ANativeWindow size mismatch!\n");
-    else if(info.format == WINDOW_FORMAT_RGB_565)
-      PLATFORM_LOG("ANativeWindow is RGB565!\n");
-    else {
-      // we're assuming 32 bit pixels
-      uint32_t* dst = (uint32_t*)info.bits + adirty.top*info.stride + adirty.left;
-      uint32_t* src = (uint32_t*)pixels + adirty.top*width + adirty.left;
-      size_t dw = adirty.right - adirty.left;
-      if(dw == info.stride)  // && adirty.left == 0
-        memcpy(dst, src, 4*dw*(adirty.bottom - adirty.top));  // full width case
-      else {
-        for(int row = adirty.top; row < adirty.bottom; ++row) {
-          memcpy(dst, src, 4*dw);
-          dst += info.stride;
-          src += width;
-        }
-      }
-    }
-    ANativeWindow_unlockAndPost(awin);
-  }
-  else
-    PLATFORM_LOG("ANativeWindow_lock failed!\n");
-  ANativeWindow_release(awin);
-  fn.env->DeleteLocalRef(jsurface);
 }
 
 /*
@@ -161,8 +120,10 @@ void AndroidHelper::getImage()
   fn.env->CallVoidMethod(fn.activity, fn.method_id);
 }
 
-// fns called from Java
-static jint jniNotify(JNIEnv* env, jclass, jint code)
+// fns called from Java (on UI thread, so app must only be accessed on app thread)
+#define JNI_FN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_com_styluslabs_writeqt_MainActivity_##name
+
+JNI_FN(jint, jniNotify)(JNIEnv* env, jclass, jint code)
 {
   if(code == A_VOL_KEYS)
     return AndroidHelper::acceptVolKeys ? 1 : 0;
@@ -174,30 +135,33 @@ static jint jniNotify(JNIEnv* env, jclass, jint code)
   return 0;
 }
 
-static void jniOpenFile(JNIEnv* env, jclass, jstring jfilename)
+static void openDocumentOnAppThread(std::string filename)
+{
+  platformRunOnAppThread([filename](){
+    if(AndroidHelper::mainWindowInst)
+      AndroidHelper::mainWindowInst->openDocument(filename);
+  });
+}
+
+JNI_FN(void, jniOpenFile)(JNIEnv* env, jclass, jstring jfilename)
 {
   const char* filename = env->GetStringUTFChars(jfilename, 0);
-  if(AndroidHelper::mainWindowInst)
-    AndroidHelper::mainWindowInst->openDocument(filename);
+  openDocumentOnAppThread(filename);
   env->ReleaseStringUTFChars(jfilename, filename);
 }
 
-static void jniOpenFileDesc(JNIEnv* env, jclass, jstring jfilename, jint jfd)
+JNI_FN(void, jniOpenFileDesc)(JNIEnv* env, jclass, jstring jfilename, jint jfd)
 {
   char buff[256];
   int len = readlink(fstring("/proc/self/fd/%d", jfd).c_str(), buff, 256);
   if(len > 0 && len < 256) {
     buff[len] = '\0';
-    //PLATFORM_LOG("readlink returned: %s\n", buff);
-    //const char* filename = env->GetStringUTFChars(jfilename, 0);
-    if(AndroidHelper::mainWindowInst)
-      AndroidHelper::mainWindowInst->openDocument(buff);  //filename);
-    //env->ReleaseStringUTFChars(jfilename, filename);
+    openDocumentOnAppThread(buff);
   }
 }
 
 // Android seems to be giving us ABGR pixels?
-static void jniInsertImage(JNIEnv* env, jclass, jobject jbitmap, jstring jmimetype, jboolean fromintent)
+JNI_FN(void, jniInsertImage)(JNIEnv* env, jclass, jobject jbitmap, jstring jmimetype, jboolean fromintent)
 {
   const char* mimetype = env->GetStringUTFChars(jmimetype, 0);
   AndroidBitmapInfo info;
@@ -210,50 +174,4 @@ static void jniInsertImage(JNIEnv* env, jclass, jobject jbitmap, jstring jmimety
     AndroidBitmap_unlockPixels(env, jbitmap);
   }
   env->ReleaseStringUTFChars(jmimetype, mimetype);
-}
-
-static void jniTouchEvent(JNIEnv* env, jclass,
-    jint toolType, jint ptrId, jint action, jint t, jfloat x, jfloat y, jfloat p, jfloat major, jfloat minor)
-{
-  // ACTION_DOWN = 0, ACTION_UP = 1, ACTION_MOVE = 2, ACTION_CANCEL = 3,
-  //  ACTION_OUTSIDE = 4, ACTION_POINTER_DOWN = 5, ACTION_POINTER_UP = 6
-  static const int actionToSDL[]
-      = {SDL_FINGERDOWN, SDL_FINGERUP, SDL_FINGERMOTION, SVGGUI_FINGERCANCEL, 0, SDL_FINGERDOWN, SDL_FINGERUP};
-  // unknown, finger, stylus, mouse, eraser
-  static const int toolToSDL[] = {0, 1, PenPointerPen, 3, PenPointerEraser};
-
-  SDL_Event event = {0};
-  event.type = action >= 0 && action < 7 ? actionToSDL[action] : SDL_FINGERMOTION;
-  event.tfinger.timestamp = t;
-  event.tfinger.touchId = toolType >= 0 && toolType < 5 ? toolToSDL[toolType] : 0;
-  event.tfinger.fingerId = ptrId;  //eventtype == SDL_FINGERMOTION ? buttons : button;
-  event.tfinger.x = x;
-  event.tfinger.y = y;
-  event.tfinger.dx = major;
-  event.tfinger.dy = minor;
-  event.tfinger.pressure = p;
-  // PeepEvents bypasses gesture recognizer and event filters
-  SDL_PeepEvents(&event, 1, SDL_ADDEVENT, 0, 0);  //SDL_PushEvent(&event);
-}
-
-
-static JNINativeMethod jniMethods[] = {
-  {"jniNotify", "(I)I", (void*)jniNotify},
-  {"jniOpenFile", "(Ljava/lang/String;)V", (void*)jniOpenFile},
-  {"jniOpenFileDesc", "(Ljava/lang/String;I)V", (void*)jniOpenFileDesc},
-  {"jniInsertImage", "(Landroid/graphics/Bitmap;Ljava/lang/String;Z)V", (void*)jniInsertImage},
-  {"jniTouchEvent", "(IIIIFFFFF)V", (void*)jniTouchEvent}
-};
-
-jint JNICALL JNI_OnLoad(JavaVM *vm, void*)
-{
-  JNIEnv* env;
-  if(vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_4) != JNI_OK)
-    return JNI_FALSE;
-
-  jclass clazz = env->FindClass(className);
-  if(env->RegisterNatives(clazz, jniMethods, sizeof(jniMethods) / sizeof(jniMethods[0])) < 0)
-    return JNI_FALSE;
-
-  return JNI_VERSION_1_4;
 }

@@ -60,6 +60,7 @@ static SDL_Window xContext;
 // events pushed by app (possibly from other threads) via SDL_PushEvent/SDL_PeepEvents
 static std::mutex eventQueueMutex;
 static std::deque<SDL_Event> eventQueue;
+static std::deque< std::function<void()> > taskQueue;  // also protected by eventQueueMutex
 static std::thread::id mainThreadId;
 static void (*eventHandler)(SDL_Event*) = NULL;
 
@@ -284,17 +285,36 @@ int SDL_PushEvent(SDL_Event* event)
   return SDL_PeepEvents(event, 1, SDL_ADDEVENT, 0, 0);
 }
 
+void platformRunOnAppThread(std::function<void()> fn)
+{
+  {
+    std::lock_guard<std::mutex> lock(eventQueueMutex);
+    taskQueue.push_back(std::move(fn));
+  }
+  if(std::this_thread::get_id() != mainThreadId)
+    PLATFORM_WakeEventLoop();
+}
+
 // dispatch without holding lock, since handler may push events or enter nested event loop
 static bool dispatchQueuedEvent()
 {
   SDL_Event event;
+  std::function<void()> task;
   {
     std::lock_guard<std::mutex> lock(eventQueueMutex);
-    if(eventQueue.empty()) { return false; }
-    event = eventQueue.front();
-    eventQueue.pop_front();
+    if(!taskQueue.empty()) {
+      task = std::move(taskQueue.front());
+      taskQueue.pop_front();
+    }
+    else if(!eventQueue.empty()) {
+      event = eventQueue.front();
+      eventQueue.pop_front();
+    }
+    else
+      return false;
   }
-  if(eventHandler) { eventHandler(&event); }
+  if(task) { task(); }
+  else if(eventHandler) { eventHandler(&event); }
   return true;
 }
 
@@ -1725,6 +1745,11 @@ void platformMessageBox(std::string title, std::string msg)
 //{
 //  MessageBoxA(parent, msg.c_str(), title.c_str(), MB_OK | MB_ICONINFORMATION);
 //}
+
+void platformKeepScreenOn(bool on) {}  // desktop: not supported
+
+// only needed for soft keyboard
+void PLATFORM_setImeText(const char* text, int selStart, int selEnd) {}
 
 bool platformOpenURL(const char* url)
 {

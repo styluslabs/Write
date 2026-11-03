@@ -216,8 +216,8 @@ void ScribbleApp::init()
   //}
 #endif
   // keep screen on
-  //cfg->Bool("keepScreenOn") ? SDL_DisableScreenSaver() : SDL_EnableScreenSaver();
-  //AndroidHelper::doAction(A_KEEP_SCREEN_ON);
+  if(cfg->Bool("keepScreenOn"))
+    platformKeepScreenOn(true);
 
   // setup page sizes on first run
   if(cfg->Float("pageWidth") == 0) {
@@ -571,23 +571,18 @@ bool ScribbleApp::closeSplit()
 
 /// Event handling ///
 
-// NOTE: this is called from sdlEventHandler on Android since it is not safe to save document on UI thread
-//  w/o sync w/ SDL_main thread, which could be modifying document
-// return 0 to prevent event from being added to queue for normal processing, 1 otherwise
+// app lifecycle events - called from sdlEventHandler (i.e. on app thread; platform layer waits for
+//  SDL_APP_WILLENTERBACKGROUND to be processed before allowing app to be suspended)
+// return 0 if event fully handled, 1 for normal processing by sdlEventHandler
 int ScribbleApp::sdlEventFilter(SDL_Event* event)
 {
   switch (event->type) {
   case SDL_APP_TERMINATING:
     // note that we expect SDL_APP_WILLENTERBACKGROUND will always be sent before SDL_APP_TERMINATING
-    return PLATFORM_ANDROID ? 1 : 0;  // handle on our thread on Android (call finish())
+    return PLATFORM_ANDROID ? 1 : 0;  // call finish() in sdlEventHandler
   case SDL_APP_LOWMEMORY:
   case SDL_APP_WILLENTERBACKGROUND:
-#if PLATFORM_ANDROID
-    SvgGui::pushUserEvent(scribbleSDLEvent, APP_SUSPEND);
-    saveSem.wait();
-#else
     appSuspending();
-#endif
     return 0;
   case SDL_APP_DIDENTERBACKGROUND:
     Application::isSuspended = true;
@@ -641,6 +636,8 @@ static int systemClipboardSerial()
 // main event dispatcher
 bool ScribbleApp::sdlEventHandler(SDL_Event* event)
 {
+  if(event->type >= SDL_APP_TERMINATING && event->type <= SDL_APP_DIDENTERFOREGROUND && !sdlEventFilter(event))
+    return true;
   switch(event->type) {
   case SDL_QUIT:
     maybeQuit();

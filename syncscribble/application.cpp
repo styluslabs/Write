@@ -51,10 +51,10 @@
 
 // SW renderer used on Mac since GL extensions not avail; GL blitter used because SDL surface doesn't support
 //  high-DPI scaling on OSX (it just uses the window size)
-// SW renderer used on Android if GLES 3.1 not available; GL blitter due to problems on old Samsung tablets
-//  with both SDL SW renderer (uses GLES too) and ANativeWindow_unlockAndPost
+// SW renderer used on Android if GLES 3 not available; previously used GL blitter due to problems on old
+//  Samsung tablets w/ ANativeWindow_unlockAndPost, but now platform layer provides SW framebuffer
 // SW renderer only used on iOS when forced in config file; SDL surface doesn't support high-DPI on iOS
-#define USE_GL_BLITTER (PLATFORM_OSX || PLATFORM_ANDROID || PLATFORM_IOS)  // || PLATFORM_EMSCRIPTEN)
+#define USE_GL_BLITTER (PLATFORM_OSX || PLATFORM_IOS)  // || PLATFORM_EMSCRIPTEN)
 
 // possible regression on iOS 18.4, so safer to stick w/ framebuffer fetch for now
 #define USE_NANOVG_VTEX (!PLATFORM_IOS)
@@ -189,8 +189,6 @@ static const char* getLocale()
 #endif
 }
 
-// for better text editing (see mapsapp)
-void PLATFORM_setImeText(const char* text, int selStart, int selEnd) {}
 
 // Windows DPI notes: GetDpiForMonitor(MDT_RAW_DPI) returns error (not supported) in Windows 8.1 VM
 // - GetDpiForMonitor(MDT_EFFECTIVE_DPI) is what SDL uses (returns 120; actual is 210 and 125% scaling)
@@ -299,10 +297,11 @@ int appMain(int argc, char* argv[])
 //  SDL_SetEventFilter(sdlEventFilter, scribbleApp);  // for app lifecycle events
 //#if PLATFORM_LINUX
 //  SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");  // play nice with other apps
-//#elif PLATFORM_ANDROID
-//  if(AndroidHelper::doAction(A_GPU_BLACKLIST))  // try to catch some bad GPUs before even trying GL
-//    ScribbleApp::cfg->set("glRender", 0);
 //#endif
+#if PLATFORM_ANDROID
+  if(ScribbleApp::cfg->Int("glRender") < 2 && AndroidHelper::doAction(A_GPU_BLACKLIST))  // try to catch some bad GPUs before even trying GL
+    ScribbleApp::cfg->set("glRender", 0);
+#endif
 
   bool sRGB = ScribbleApp::cfg->Bool("sRGB");
   //int nvgFlags = NVG_AUTOW_DEFAULT | (sRGB ? NVG_SRGB : 0) | NVG_NO_FONTSTASH;
@@ -335,6 +334,11 @@ int appMain(int argc, char* argv[])
   }
   if(!(platformCfg.flags & PlatformConfig::USE_GL))
     ScribbleApp::cfg->set("glRender", 0);
+  // platform clears SRGB flag if sRGB framebuffer not available (only relevant for GLES)
+  if(!(platformCfg.flags & PlatformConfig::SRGB)) {
+    sRGB = false;
+    nvglFBFlags = 0;
+  }
 
   //SDL_Window* sdlWindow = Application::sdlWindow;
 
@@ -559,8 +563,10 @@ void Application::layoutAndDraw()
 {
   if(isSuspended) return;
   int w = 0, h = 0;
-  if(glRender)
+  if(glRender) {
     SDL_GetWindowSize(sdlWindow, &w, &h);
+    if(w <= 0 || h <= 0) return;  // no surface (e.g. Android app in background)
+  }
   else {
     static PlatformFramebuffer prevFB = {};
     PlatformFramebuffer fb = platformGetSWFramebuffer();

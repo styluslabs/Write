@@ -30,13 +30,10 @@
     android:hardwareAccelerated="true">
 
     <!-- Automatically added for debug build(?)  android:debuggable="true" -->
-    <!-- Example of setting SDL hints from AndroidManifest.xml:
-    <meta-data android:name="SDL_ENV.SDL_ACCELEROMETER_AS_JOYSTICK" android:value="0"/>
-     -->
 
     <!-- Required to enable sharing of files -->
     <provider
-      android:name="android.support.v4.content.FileProvider"
+      android:name="androidx.core.content.FileProvider"
       android:authorities="com.styluslabs.writeqt.fileprovider"
       android:grantUriPermissions="true"
       android:exported="false">

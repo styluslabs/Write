@@ -14,7 +14,6 @@ public:
   static void sendFile(const char* filename, const char* mimetype, const char* title);
   static void getImage();
   static bool rawResourceToFile(const char* resname, const char* outfile);
-  static void blitSurface(void* pixels, int width, int height, int x, int y, int w, int h);
 
   static ScribbleApp* mainWindowInst;
   static bool acceptVolKeys;
