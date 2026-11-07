@@ -245,7 +245,7 @@ include Makefile.wasm
 
 else
 
-SOURCES += linux/linuxmain.cpp ../nanovgXC/glad/glad.c
+SOURCES += ../ugui/platforms/linuxmain.cpp ../nanovgXC/glad/glad.c
 DEFS += SVGGUI_NO_SDL SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 DEBUG ?= 0
 #~ USE_SYSTEM_SDL ?= 0
