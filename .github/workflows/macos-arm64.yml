@@ -1,0 +1,50 @@
+name: macOS Apple Silicon DMG
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-arm64:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build SDL for ARM64
+        working-directory: SDL
+        run: |
+          git checkout write-mac
+          make -f ../scribbleres/SDL-Makefile.mac -j3 \
+            CC='clang -arch arm64' \
+            MC='clang -arch arm64 -x objective-c'
+      - name: Build and verify native app
+        working-directory: syncscribble
+        run: |
+          make MACOS=1 -j3 \
+            CC='clang -arch arm64' \
+            CXX='clang++ -arch arm64' \
+            MC='clang -arch arm64 -x objective-c' \
+            LD='clang++ -arch arm64'
+          test "$(lipo -archs MacRelease/Write.app/Contents/MacOS/Write)" = arm64
+          codesign --force --sign - MacRelease/Write.app
+          codesign --verify --verbose MacRelease/Write.app
+      - name: Package DMG
+        working-directory: syncscribble
+        run: |
+          make MACOS=1 dmg
+          mv MacRelease/Write.dmg MacRelease/Write-macOS-arm64.dmg
+          hdiutil verify MacRelease/Write-macOS-arm64.dmg
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Write-macOS-arm64
+          path: syncscribble/MacRelease/Write-macOS-arm64.dmg
+          if-no-files-found: error
