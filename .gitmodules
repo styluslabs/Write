@@ -30,3 +30,7 @@
 	path = ugui
 	url = https://github.com/styluslabs/ugui.git
 	ignore = untracked
+[submodule "scribbletest"]
+	path = scribbletest
+	url = https://github.com/pbsurf/scribbletest.git
+	ignore = untracked
