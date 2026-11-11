@@ -295,10 +295,10 @@ bool appInit(int argc, char* argv[])
   Painter::initFontStash(FONS_DELAY_LOAD | FONS_SUMMED);
   fonsInternalParams(Painter::fontStash)->notDefCodePt = 0xFE56;
 
-  Painter* painter = new Painter(
-        (ScribbleApp::cfg->Int("glRender") ? Painter::PAINT_GL : Painter::PAINT_SW) |
-        Painter::SW_FALLBACK | Painter::CACHE_IMAGES | (sRGB ? Painter::SRGB_AWARE : 0) |
-        (SCRIBBLE_DEBUG ? Painter::PAINT_DEBUG_GL : 0) | (USE_GL_BLITTER ? Painter::SW_BLIT_GL : 0));
+  int painterFlags = (ScribbleApp::cfg->Int("glRender") ? Painter::PAINT_GL : Painter::PAINT_SW) |
+      Painter::SW_FALLBACK | Painter::CACHE_IMAGES | (sRGB ? Painter::SRGB_AWARE : 0) |
+      (SCRIBBLE_DEBUG ? Painter::PAINT_DEBUG_GL : 0) | (USE_GL_BLITTER ? Painter::SW_BLIT_GL : 0);
+  Painter* painter = new Painter(painterFlags ^ ScribbleApp::cfg->Int("nvgGlFlags"));  // for testing/debugging
   Application::painter = painter;
   Application::glRender = painter->usesGPU();
   if(Application::glRender) {

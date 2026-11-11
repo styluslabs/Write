@@ -150,7 +150,8 @@ void ScribbleConfig::init()
   cfg["screenDPI"] = 0;
   // use sRGB color space properly if set - i.e. perform blending in linear space and convert back to sRGB
   cfg["sRGB"] = 1;
-  // nanovg-2 flags for debugging - 1<<4 == 16 == NVG_NO_FB_FETCH; 1<<5 == 32 == NVG_NO_IMG_ATOMIC
+  // for testing and debugging: XOR'd w/ flags passed to Painter() (Painter::CreateFlags in ulib/painter.h), e.g.
+  //  64 = SW_NO_XC, 512 = PAINT_DEBUG_GL
   cfg["nvgGlFlags"] = 0;
   cfg["glFrameFence"] = 0;  // wait for previous frame: 0 = auto (VMware SVGA3D only), 1 = always, -1 = never
   cfg["glRender"] = 1;  // we'll try GL on first run
