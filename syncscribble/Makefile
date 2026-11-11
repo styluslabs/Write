@@ -253,6 +253,7 @@ TEST_TARGET = WriteTest
 TEST_SOURCES = \
   ../scribbletest/scribbletest.cpp \
   ../scribbletest/imagecompare.cpp \
+  ../scribbletest/doccompare.cpp \
   ../scribbletest/headless.cpp \
   ../scribbletest/testmain.cpp
 DEFS += SVGGUI_NO_SDL SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
