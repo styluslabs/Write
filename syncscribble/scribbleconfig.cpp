@@ -152,6 +152,7 @@ void ScribbleConfig::init()
   cfg["sRGB"] = 1;
   // nanovg-2 flags for debugging - 1<<4 == 16 == NVG_NO_FB_FETCH; 1<<5 == 32 == NVG_NO_IMG_ATOMIC
   cfg["nvgGlFlags"] = 0;
+  cfg["glFrameFence"] = 0;  // wait for previous frame: 0 = auto (VMware SVGA3D only), 1 = always, -1 = never
   cfg["glRender"] = 1;  // we'll try GL on first run
 
   // advanced vs. basic prefs in Preferences dialog

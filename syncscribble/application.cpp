@@ -243,6 +243,30 @@ void Application::setupUIScale(float horzdpi)
 }
 
 
+// Optionally wait for GPU to finish previous frame's nanovg draws before uploading data (vertices, uniforms,
+//  edge texture) for next frame.  This should not be necessary - GL guarantees implicit sync for glBufferData,
+//  glTexImage3D, etc. - but VMware SVGA3D driver (Mesa 26.1) corrupts rendering of rapidly updated small frames
+//  (in-progress stroke, hover cursor) without it.  Measured cost w/ SVGA3D was ~zero: wait just moves from
+//  swap buffers to the fence.  Enabled by glFrameFence pref: 0 = auto (SVGA3D only), 1 = always, -1 = never.
+//  (Alternative fix of cycling buffers in nanovg_vtex.h kept in nanovgXC git stash)
+static bool useFrameFence = false;
+static GLsync prevFrameFence = 0;
+
+static void waitPrevFrameFence()
+{
+  if(!prevFrameFence) return;
+  glClientWaitSync(prevFrameFence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000);  // 1 sec timeout
+  glDeleteSync(prevFrameFence);
+  prevFrameFence = 0;
+}
+
+static void setPrevFrameFence()
+{
+  if(!useFrameFence) return;
+  if(prevFrameFence) glDeleteSync(prevFrameFence);
+  prevFrameFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+}
+
 int appMain(int argc, char* argv[])
 {
   Application::runApplication = true;
@@ -479,6 +503,13 @@ int appMain(int argc, char* argv[])
     nvglFB = nvgluCreateFramebuffer(painter->vg, 0, 0, NVGLU_NO_NVG_IMAGE | nvglFBFlags);
     if(sRGB)
       nvgluSetFramebufferSRGB(1);  // no-op for GLES - sRGB enabled iff FB is sRGB
+    // see waitPrevFrameFence()
+    int fenceCfg = ScribbleApp::cfg->Int("glFrameFence");
+    const char* glRenderer = (const char*)glGetString(GL_RENDERER);
+    useFrameFence = fenceCfg > 0 || (fenceCfg == 0 && glRenderer && strstr(glRenderer, "SVGA3D"));
+    if(useFrameFence)
+      PLATFORM_LOG("Waiting for previous frame before rendering (glFrameFence = %d, GL renderer: %s)\n",
+          fenceCfg, glRenderer ? glRenderer : "");
   }
   else {
     int ncores = std::thread::hardware_concurrency();
@@ -725,6 +756,7 @@ bool Application::layoutAndDrawGL(int fbWidth, int fbHeight)
     nvgluSetScissor(int(dirty.left), fbHeight - int(dirty.bottom), int(dirty.width()), int(dirty.height()));
   //nvgluClear(nvgRGBA(0, 0, 0, 0));
 
+  waitPrevFrameFence();  // endFrame() uploads vertex, uniform, edge data
   if(nvglFB) {
     // drawing to screen on iOS is accomplished with EAGLContext::presentRenderbuffer - there is no default
     //  framebuffer (FB 0 is "incomplete"); SDL creates a framebuffer for us, so we need to keep track of it
@@ -732,11 +764,14 @@ bool Application::layoutAndDrawGL(int fbWidth, int fbHeight)
     int prev = nvgluBindFramebuffer(nvglFB);
     nvgluSetFramebufferSize(nvglFB, fbWidth, fbHeight, nvglFBFlags);
     TRACE(painter->endFrame());
+    setPrevFrameFence();  // only nanovg draws need to complete before next frame's uploads
     nvgluSetScissor(0, 0, 0, 0);  // disable scissor for blit
     TRACE(nvgluBlitFramebuffer(nvglFB, prev));  // blit to prev FBO and rebind it
   }
-  else
+  else {
     TRACE(painter->endFrame());
+    setPrevFrameFence();
+  }
 
   // caller presents (platformPresent())
   TRACE_FLUSH();
