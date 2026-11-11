@@ -27,6 +27,7 @@ SOURCES = \
   scribblewidget.cpp \
   scribbleconfig.cpp \
   scribblesync.cpp \
+  swbserver.cpp \
   documentlist.cpp \
   rulingdialog.cpp \
   configdialog.cpp \
@@ -256,6 +257,7 @@ TEST_SOURCES = \
   ../scribbletest/doccompare.cpp \
   ../scribbletest/headless.cpp \
   ../scribbletest/redrawcheck.cpp \
+  ../scribbletest/swbservertest.cpp \
   ../scribbletest/testmain.cpp
 TEST_LIBS = -lEGL
 # `make redrawcheck` builds WriteRedrawCheck: Write w/ redraw check (compares each partial SW redraw to a full

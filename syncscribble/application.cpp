@@ -6,6 +6,7 @@
 #include "scribbleapp.h"
 #include "scribbleview.h"
 #include "scribbleconfig.h"
+#include "swbserver.h"
 
 #if PLATFORM_WIN
 #include "windows/winhelper.h"
@@ -379,6 +380,15 @@ void appShutdown()
 
 int appMain(int argc, char* argv[])
 {
+#if !PLATFORM_MOBILE && !PLATFORM_EMSCRIPTEN
+  // `Write --server`: run whiteboard server instead of app (no GUI or display needed)
+  if(swbServerRequested(argc, argv)) {
+#if PLATFORM_WIN
+    winLogToConsole = attachParentConsole();
+#endif
+    return swbServerMain(argc, argv);
+  }
+#endif
   if(!appInit(argc, argv))
     return -1;
 #if PLATFORM_EMSCRIPTEN

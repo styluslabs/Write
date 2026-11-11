@@ -2378,14 +2378,6 @@ void ScribbleApp::updateInfoReceived(char* updateData)
 #define MD5_IMPLEMENTATION
 #include "ulib/md5.h"
 
-struct Url {
-  std::string user;
-  std::string pass;
-  std::string host;
-  std::string path;
-  std::string query;
-};
-
 // SWB url string: [user[:pass]@][server[:port]/]whiteboard_id[?query params]
 // we allow SWB login in HTTP credential format, but we don't actually send as HTTP credentials (insecure)
 static Url parseWhiteboard(std::string sharename)
@@ -2619,7 +2611,9 @@ std::string ScribbleApp::syncAPICall(const Url& baseurl, const std::string& rout
   constexpr int RECV_BUFF_LEN = 4096;
   char recvBuff[RECV_BUFF_LEN];
   std::string reply;
-  int sock = unet_socket(UNET_TCP, UNET_CONNECT, UNET_NOBLOCK, baseurl.host.c_str(), "7000");
+  int port;
+  std::string host = ScribbleSync::splitHostPort(baseurl.host, &port);
+  int sock = unet_socket(UNET_TCP, UNET_CONNECT, UNET_NOBLOCK, host.c_str(), std::to_string(port).c_str());
   if(sock != -1) {
     if(unet_select(-1, sock, 4) > 0) {
       std::string req = fstring("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nUser Agent: %s\r\n",

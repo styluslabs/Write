@@ -91,14 +91,13 @@ void ScribbleDoc::closeDocument()
   // disconnectSync starts an event loop via waitForDisconnect, so we must disconnect before calling
   //  ScribbleArea::reset(), since ScribbleArea handling events when in an invalid state can cause crash
   exitPageSelMode();
-  if(scribbleSync)
-    delete scribbleSync;
+  delete scribbleSync;
+  scribbleSync = NULL;  // must be cleared before views are reset (can call strokesUpdated())
   for(unsigned int ii = 0; ii < views.size(); ii++)
     views[ii]->reset();
   delete document;
   delete cfg;
   ghostPage.reset();
-  scribbleSync = NULL;
   document = NULL;
   history = NULL;  // history is owned by document
   cfg = NULL;

@@ -21,6 +21,8 @@ public:
   ~ScribbleSync();
 
   static UUID_t strToUuid(const char* str);
+  // split "host[:port]" or "[ipv6]:port" - port is HTTP API port (default 7000); whiteboard relay uses port + 1
+  static std::string splitHostPort(const std::string& hostport, int* port);
 
   void connectSync(const char *server, const pugi::xml_node& xml, bool master);
   bool isSyncActive();

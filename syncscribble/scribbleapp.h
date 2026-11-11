@@ -44,7 +44,15 @@ class PenToolbar;
 class Selection;
 class Clipboard;
 class Page;
-struct Url;
+
+// whiteboard URL - see parseWhiteboard()
+struct Url {
+  std::string user;
+  std::string pass;
+  std::string host;
+  std::string path;
+  std::string query;
+};
 
 class ScribbleApp : public Application
 {

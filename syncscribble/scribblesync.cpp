@@ -73,6 +73,23 @@ static void pushSyncEvent(SDL_Event* event)
   PLATFORM_WakeEventLoop();
 }
 
+std::string ScribbleSync::splitHostPort(const std::string& hostport, int* port)
+{
+  *port = 7000;
+  std::string host = hostport;
+  size_t colon = hostport.rfind(':');
+  size_t bracket = hostport.rfind(']');
+  if(colon != std::string::npos && (bracket == std::string::npos ? hostport.find(':') == colon : colon > bracket)) {
+    int p = atoi(hostport.c_str() + colon + 1);
+    if(p > 0 && p < 65535)
+      *port = p;
+    host = hostport.substr(0, colon);
+  }
+  if(host.size() > 1 && host.front() == '[' && host.back() == ']')
+    host = host.substr(1, host.size() - 2);
+  return host;
+}
+
 int ScribbleSync::netThreadFn(void* _self)
 {
   ScribbleSync* self = static_cast<ScribbleSync*>(_self);
@@ -81,9 +98,12 @@ int ScribbleSync::netThreadFn(void* _self)
   event.user.data1 = self->scribbleDoc;
   event.user.data2 = self;
 
+  int apiport;
+  std::string host = splitHostPort(self->syncServer, &apiport);
+  std::string relayport = std::to_string(apiport + 1);
   while(self->syncState != SYNC_OFF) {
     // don't want to block on recv in main thread; also, UNET_NOBLOCK required to make connect non-blocking
-    self->socket = unet_socket(UNET_TCP, UNET_CONNECT, UNET_NOBLOCK, self->syncServer.c_str(), "7001");
+    self->socket = unet_socket(UNET_TCP, UNET_CONNECT, UNET_NOBLOCK, host.c_str(), relayport.c_str());
     // For a non-blocking socket, we need to use select to wait for writability to indicate connected!
     if(self->socket != -1 && unet_select(-1, self->socket, 8) == UNET_RDY_WR) {  // wait 8 seconds for connect
       event.user.code = SOCKET_CONNECTED;
