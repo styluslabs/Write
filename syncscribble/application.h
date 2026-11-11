@@ -6,7 +6,6 @@
 
 class Painter;
 struct Rect;
-struct PlatformFramebuffer;
 class SvgGui;
 class Window;
 class Dialog;
@@ -33,8 +32,11 @@ public:
   static int execDialog(Dialog* dialog);
   static void asyncDialog(Dialog* dialog, const std::function<void(int)>& callback = NULL);
   static void finish() { runApplication = false; }
-  // debug hook called after each SW frame is drawn, before present (see scribbletest/redrawcheck.cpp)
-  static void (*swFrameHook)(const PlatformFramebuffer& fb, const Rect& dirty);
+  // debug hook called after each frame is drawn, before present (see scribbletest/redrawcheck.cpp); for GL,
+  //  the frame has been blitted to the window framebuffer, which is bound
+  static void (*frameHook)(const Rect& dirty);
+  // NVG image flags (e.g. NVG_IMAGE_SRGB) of offscreen framebuffer used for GL rendering
+  static int glFramebufferFlags();
 
   static void sdlEvent(SDL_Event* event);
 

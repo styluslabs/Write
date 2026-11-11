@@ -620,9 +620,11 @@ int appMain(int argc, char* argv[])
   return 0;
 }
 
-// debug hook called after each SW frame is drawn (before present) - see scribbletest/redrawcheck.cpp
-void (*Application::swFrameHook)(const PlatformFramebuffer& fb, const Rect& dirty) = NULL;
-static Rect lastSWDirty;
+// debug hook called after each frame is drawn (before present) - see scribbletest/redrawcheck.cpp
+void (*Application::frameHook)(const Rect& dirty) = NULL;
+static Rect lastDirty;
+
+int Application::glFramebufferFlags() { return nvglFBFlags; }
 
 bool Application::processEvents()
 {
@@ -648,8 +650,8 @@ void Application::layoutAndDraw()
     w = fb.width;  h = fb.height;
   }
   if(layoutAndDraw(w, h)) {
-    if(!glRender && swFrameHook)
-      swFrameHook(platformGetSWFramebuffer(), lastSWDirty);
+    if(frameHook)
+      frameHook(lastDirty);
     platformPresent();
   }
 }
@@ -760,7 +762,7 @@ void Application::layoutAndDrawSW()
 bool Application::layoutAndDrawSW(int w, int h)
 {
   Rect dirty = tracedGuiLayoutAndDraw(w, h);
-  lastSWDirty = dirty;
+  lastDirty = dirty;
   if(!dirty.isValid())
     return false;
   TRACE(painter->endFrame());
@@ -776,6 +778,7 @@ bool Application::layoutAndDrawGL(int fbWidth, int fbHeight)
 
   Rect oldDeviceRect = painter->deviceRect;
   Rect dirty = tracedGuiLayoutAndDraw(fbWidth, fbHeight);
+  lastDirty = dirty;
   if(!dirty.isValid())
     return false;
   // for now, we scissor here to limit fill rate; we may add support directly to nanovg-2 later (but we would
