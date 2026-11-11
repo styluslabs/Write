@@ -257,6 +257,7 @@ TEST_SOURCES = \
   ../scribbletest/headless.cpp \
   ../scribbletest/redrawcheck.cpp \
   ../scribbletest/testmain.cpp
+TEST_LIBS = -lEGL
 # `make redrawcheck` builds WriteRedrawCheck: Write w/ redraw check (compares each partial SW redraw to a full
 #  redraw - see scribbletest/redrawcheck.cpp)
 REDRAWCHECK_TARGET = WriteRedrawCheck
