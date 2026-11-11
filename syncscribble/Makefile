@@ -255,11 +255,13 @@ TEST_SOURCES = \
   ../scribbletest/imagecompare.cpp \
   ../scribbletest/doccompare.cpp \
   ../scribbletest/headless.cpp \
+  ../scribbletest/redrawcheck.cpp \
   ../scribbletest/testmain.cpp
 # `make redrawcheck` builds WriteRedrawCheck: Write w/ redraw check (compares each partial SW redraw to a full
 #  redraw - see scribbletest/redrawcheck.cpp)
 REDRAWCHECK_TARGET = WriteRedrawCheck
 REDRAWCHECK_SOURCES = \
+  ../scribbletest/redrawcheckmain.cpp \
   ../scribbletest/redrawcheck.cpp \
   ../scribbletest/imagecompare.cpp
 DEFS += SVGGUI_NO_SDL SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'

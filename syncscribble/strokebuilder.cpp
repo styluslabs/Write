@@ -320,6 +320,15 @@ void FilledStrokeBuilder::addPoint(const StrokePoint& pt)
     return;
   }
 
+  // previous end cap is replaced and previous segment's edges (from path1/path2 last points) change direction, so
+  //  include them in dirty rect (as in removePoints())
+  if(path1.size() > 0 && path2.size() > 0) {
+    dirty.rectUnion(path1.rpoint(1));
+    dirty.rectUnion(path2.rpoint(1));
+    dirty.rectUnion(stroke->point(path1.size()));
+    dirty.rectUnion(stroke->point(path1.size() + 1));
+  }
+
   Point d01 = pt1 - pt0;
   Point d12 = pt2 - pt1;
   // calculate normals for two segments
