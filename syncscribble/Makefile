@@ -245,7 +245,15 @@ include Makefile.wasm
 
 else
 
-SOURCES += ../ugui/platforms/linuxmain.cpp ../nanovgXC/glad/glad.c
+SOURCES += ../nanovgXC/glad/glad.c
+# platform layer (provides main()) - only linked into Write, not WriteTest
+MAIN_SOURCES = ../ugui/platforms/linuxmain.cpp
+# `make test` builds and runs WriteTest, which runs tests using a headless platform layer
+TEST_TARGET = WriteTest
+TEST_SOURCES = \
+  ../scribbletest/scribbletest.cpp \
+  ../scribbletest/headless.cpp \
+  ../scribbletest/testmain.cpp
 DEFS += SVGGUI_NO_SDL SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 DEBUG ?= 0
 #~ USE_SYSTEM_SDL ?= 0

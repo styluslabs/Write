@@ -36,9 +36,7 @@ struct SDL_Cursor_Deleter;
 
 class ScribbleArea : public ScribbleView
 {
-#ifdef SCRIBBLE_TEST
   friend class ScribbleTest;
-#endif
   friend class LinkDialog;
   friend class ScribbleDoc;
   friend class ClippingView;

@@ -24,10 +24,6 @@ typedef int64_t Timestamp;
 #define MIN_DIM REAL_MIN
 // previously, we had MIN/MAX_X/Y_DIM to provide better annotation, but they weren't used consistently
 
-#ifndef NDEBUG
-#define SCRIBBLE_TEST 1
-#endif
-
 extern bool SCRIBBLE_DEBUG;
 
 #endif

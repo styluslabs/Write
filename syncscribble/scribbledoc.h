@@ -10,9 +10,7 @@ class StrokeBuilder;
 
 class ScribbleDoc
 {
-#ifdef SCRIBBLE_TEST
   friend class ScribbleTest;
-#endif
   friend class UndoHistory; // for syncing; hopefully only temporary
   friend class LinkDialog;
   friend class ScribbleArea;

@@ -37,6 +37,7 @@ MainWindow* ScribbleApp::win = NULL;
 ScribbleConfig* ScribbleApp::cfg = NULL;
 Dialog* ScribbleApp::currDialog = NULL;
 Uint32 ScribbleApp::scribbleSDLEvent = 0;
+bool ScribbleApp::testMode = false;
 
 ScribbleApp::ScribbleApp(int argc, char* argv[])
 {
@@ -121,10 +122,18 @@ ScribbleApp::ScribbleApp(int argc, char* argv[])
     AndroidHelper::rawResourceToFile("DroidSansFallback.ttf", fallbackFont.c_str());
   }
 #endif
+  if(testMode) {
+    // private temp folder, since ~ScribbleApp() deletes tempPath (possibly in use by a running instance of Write)
+    tempPath = FSPath(tempPath, fstring("test-%d/", int(mSecSinceEpoch() % 1000000))).c_str();
+    savedPath = FSPath(tempPath, "saved/").c_str();
+    cfgFile.clear();
+    disableConfigSave = true;
+  }
   createPath(tempPath.c_str());
 
   cfg = new ScribbleConfig;
-  if(!cfg->loadConfigFile(cfgFile.c_str())) {
+  if(testMode) {}  // use default config
+  else if(!cfg->loadConfigFile(cfgFile.c_str())) {
 #if PLATFORM_DESKTOP
     if(!createPath(FSPath(cfgFile).parent().c_str()))
       cfgFile = FSPath(basepath, "write.xml").c_str();
@@ -159,8 +168,6 @@ ScribbleApp::ScribbleApp(int argc, char* argv[])
           finish();  // exit immediately
         else if(arg == "out" && ii+1 < argc)
           outDoc = argv[++ii];
-        else if(arg.endsWith("test"))
-          runType = arg.toString();
         else if(ii+1 < argc && argv[ii+1][0] != '-') {  // support space instead of '=' between arg and value
           disableConfigSave = true;
           cfg->setConfigValue(arg.data(), argv[++ii]);
@@ -285,20 +292,15 @@ void ScribbleApp::init()
   onLoadFile("");  // this will call populateRecentFiles();
   //scribbleDoc->activeArea->setFocus();
 
+  // WriteTest: tests create their own documents
+  if(testMode)
+    return;
+
   // update check
 #if ENABLE_UPDATE
   if(cfg->Bool("updateCheck")
       && cfg->Int("lastUpdateCheck") + cfg->Int("updateCheckInterval") < int(mSecSinceEpoch()/1000))
     updateCheck(false);
-#endif
-
-  // testing
-#ifdef SCRIBBLE_TEST
-  if(StringRef(runType).endsWith("test")) {
-    SCRIBBLE_LOG(runTest(runType).c_str());
-    finish();
-    return;
-  }
 #endif
 
   // clear temp folder
@@ -2321,7 +2323,7 @@ void ScribbleApp::updateNotify(const char* msg, int level)
   if(userUpdateReq)
     messageBox(level == 0 ? Info : Warning, _("Update Check"), msg);
   //userUpdateReq = false;
-#ifdef SCRIBBLE_TEST
+#if IS_DEBUG
   SCRIBBLE_LOG("Update Check: %s\n", msg);
 #endif
 }
@@ -2684,7 +2686,7 @@ void ScribbleApp::showNotify(const std::string& msg, int level)
   notifyBar->node->setAttribute("fill", bg[std::max(0, std::min(level, 2))]);
   notifyBar->setVisible(true);
   // we might want to see notifications longer when testing
-#ifndef SCRIBBLE_TEST
+#if !IS_DEBUG
   notifyTimer = gui->setTimer(5000, win, notifyTimer, [this]() {
     dismissNotify();
     return 0;
@@ -2744,46 +2746,3 @@ cleanup:
 }
 #endif
 
-#ifdef SCRIBBLE_TEST
-// an alternative to this is TESTSOURCES= in Makefile.common
-#include "scribbletest/scribbletest.cpp"
-
-void ScribbleApp::runTestUI(std::string runtype)
-{
-  if(!cfg->Int("glRender")) {
-    messageBox(Error, "Cannot run tests", "Tests require GL renderer.");
-    return;
-  }
-  messageBox(Info, "Test Results - " + runtype, runTest(runtype));
-}
-
-std::string ScribbleApp::runTest(std::string runtype)
-{
-  if(runtype == runType) { ScribbleTest::exitAfterTest = true; }
-  if(runtype == "test") {
-    ScribbleTest test(SCRIBBLE_TEST_PATH);
-    test.runAll();
-    return test.resultStr;
-  }
-  else if(runtype == "synctest") {
-    ScribbleTest test(SCRIBBLE_TEST_PATH);
-    // set server for synctest
-    test.scribbleConfig->set("syncServer", cfg->String("syncServer"));
-    test.runAll(true);
-    return test.resultStr;
-  }
-  else if(runtype == "perftest") {
-    ScribbleTest test(activeDoc(), bookmarkArea, scribbleMode);
-    test.performanceTest();
-    return test.resultStr;
-  }
-  else if(runtype == "inputtest") {
-    // see 83a76eea88eb for TouchInputFilter::notifyTouchEvent test
-    ScribbleTest test(activeDoc(), bookmarkArea, scribbleMode);
-    test.inputTest();
-    return test.resultStr;
-  }
-  return runtype + " is not a valid test mode.";
-}
-
-#endif

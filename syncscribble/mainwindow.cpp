@@ -1297,19 +1297,6 @@ void MainWindow::setupActions()
   overflowMenu->addAction(actionInsert_Image);  // move to Document menu?
   overflowMenu->addAction(actionPreferences);
 
-#ifdef SCRIBBLE_TEST
-  Action* actionRunTests = createAction("actionRunTests", "Run Tests", "", "", SLOT(runTestUI("test")));
-  Action* actionSyncTests = createAction("actionSyncTests", "Sync Tests", "", "", SLOT(runTestUI("synctest")));
-  Action* actionPerfTests = createAction("actionPerfTests", "Performance Test", "", "", SLOT(runTestUI("perftest")));
-  Action* actionInputTests = createAction("actionInputTests", "Input Test", "", "", SLOT(runTestUI("inputtest")));
-  Menu* testmenu = createMenu("testMenu", "Testing", Menu::HORZ);
-  testmenu->addAction(actionRunTests);
-  testmenu->addAction(actionSyncTests);
-  testmenu->addAction(actionPerfTests);
-  testmenu->addAction(actionInputTests);
-  overflowMenu->addSubmenu("Testing", testmenu);
-#endif
-
   actionOverflow_Menu->setMenu(overflowMenu);
   // never hide overflow menu
   actionOverflow_Menu->setPriority(100); //Action::HighPriority);

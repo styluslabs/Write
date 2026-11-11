@@ -102,10 +102,9 @@ public:
   //void syncMessage(std::string msg, int level);
   // update check
   void updateCheck(bool userreq = true);
-#ifdef SCRIBBLE_TEST
-  std::string runTest(std::string runtype);
-  void runTestUI(std::string runtype);
-#endif
+  // set by WriteTest before creating ScribbleApp: use default config (never loaded or saved), use a private temp
+  //  folder, and stop init() before checking for updates or opening any documents
+  static bool testMode;
 
   ScribbleApp(int argc, char* argv[]);
   void init();

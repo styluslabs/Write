@@ -12,6 +12,10 @@ struct SDL_Window;
 struct SDL_Rect;
 union SDL_Event;
 
+// appMain() = appInit() + event loop + appShutdown(); WriteTest calls appInit() and appShutdown() directly
+bool appInit(int argc, char* argv[]);
+void appShutdown();
+
 class Application
 {
 public:

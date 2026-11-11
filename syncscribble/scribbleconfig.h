@@ -11,9 +11,7 @@
 struct ltstr { bool operator()(const char* s1, const char* s2) const { return strcmp(s1, s2) < 0; } };
 
 class ScribbleConfig {
-#ifdef SCRIBBLE_TEST
   friend class ScribbleTest;
-#endif
 private:
   // bools and ints
   std::map<const char*, int, ltstr> cfg;

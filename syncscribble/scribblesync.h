@@ -14,9 +14,7 @@ struct Timer;
 
 class ScribbleSync
 {
-#ifdef SCRIBBLE_TEST
   friend class ScribbleTest;
-#endif
 
 public:
   ScribbleSync(ScribbleDoc* sd);

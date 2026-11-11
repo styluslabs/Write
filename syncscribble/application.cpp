@@ -267,7 +267,12 @@ static void setPrevFrameFence()
   prevFrameFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 }
 
-int appMain(int argc, char* argv[])
+// bounds calculator for SvgDocument; must outlive all documents, so created in appInit() and deleted in appShutdown()
+static Painter* boundsPainter = NULL;
+static SvgPainter* boundsCalc = NULL;
+
+// appMain() is split into appInit() and appShutdown() so that WriteTest can run tests in place of the event loop
+bool appInit(int argc, char* argv[])
 {
   Application::runApplication = true;
 #if PLATFORM_WIN
@@ -356,7 +361,7 @@ int appMain(int argc, char* argv[])
   Application::sdlWindow = platformInit(platformCfg);
   if(!Application::sdlWindow) {
     platformMessageBox("Error", "Unable to create window.");
-    return -1;
+    return false;
   }
 #if PLATFORM_WIN
   // platform layer creates GL context, but we must load GL fns
@@ -522,9 +527,9 @@ int appMain(int argc, char* argv[])
   //#endif
   }
 
-  Painter boundsPainter(Painter::PAINT_NULL);
-  SvgPainter boundsCalc(&boundsPainter);
-  SvgDocument::sharedBoundsCalc = &boundsCalc;
+  boundsPainter = new Painter(Painter::PAINT_NULL);
+  boundsCalc = new SvgPainter(boundsPainter);
+  SvgDocument::sharedBoundsCalc = boundsCalc;
 
   setupResources();  // load fonts, icons, etc.
   const char* cfgLocale = ScribbleApp::cfg->String("locale", "");
@@ -540,15 +545,14 @@ int appMain(int argc, char* argv[])
   Application::setupUIScale(dpi >= 10 && dpi <= 1200 ? dpi : 0);
 
   scribbleApp->init();  // this previously could enter event loop, but not anymore
+  return true;
+}
 
-#if PLATFORM_EMSCRIPTEN
-  //SvgGui::debugDirty = true;
-  emscripten_set_main_loop(wasmMainLoop, 0, 1);  // fps = 0 (use default), infinite loop = 1 (never returns)
-#else
-  while(Application::processEvents()) {
-    Application::layoutAndDraw();
-  }
-#endif
+void appShutdown()
+{
+  ScribbleApp* scribbleApp = ScribbleApp::app;
+  SvgGui* svgGui = Application::gui;
+  Painter* painter = Application::painter;
 
   // save window state
   /*
@@ -566,19 +570,21 @@ int appMain(int argc, char* argv[])
       winX - dispBounds.x, winY - dispBounds.y, winW, winH, winMax, dispIdx).c_str());
   */
 
-#if IS_DEBUG && !PLATFORM_MOBILE
-//  SDL_HideWindow(sdlWindow);
-  if(Application::glRender)
-    SCRIBBLE_LOG("\n**** RUNNING TESTS ****\n%s\n", scribbleApp->runTest("test").c_str());
-#endif
-
   auto winpos = platformGetWindowPos();
   ScribbleApp::cfg->set("windowState", fstring("%d %d %d %d %d %d",
       winpos.x, winpos.y, winpos.w, winpos.h, winpos.maximized, winpos.display).c_str());
 
   delete scribbleApp;
+  ScribbleApp::app = NULL;
   delete svgGui;
+  Application::gui = NULL;
   delete painter;
+  Application::painter = NULL;
+  SvgDocument::sharedBoundsCalc = NULL;
+  delete boundsCalc;
+  boundsCalc = NULL;
+  delete boundsPainter;
+  boundsPainter = NULL;
   if(nvglFB)
     nvgluDeleteFramebuffer(nvglFB);
   if(swThreadPool)
@@ -596,6 +602,21 @@ int appMain(int argc, char* argv[])
 #endif
   platformShutdown();
   unet_terminate();
+}
+
+int appMain(int argc, char* argv[])
+{
+  if(!appInit(argc, argv))
+    return -1;
+#if PLATFORM_EMSCRIPTEN
+  //SvgGui::debugDirty = true;
+  emscripten_set_main_loop(wasmMainLoop, 0, 1);  // fps = 0 (use default), infinite loop = 1 (never returns)
+#else
+  while(Application::processEvents()) {
+    Application::layoutAndDraw();
+  }
+#endif
+  appShutdown();
   return 0;
 }
 
