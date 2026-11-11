@@ -222,9 +222,11 @@ void ScribbleApp::init()
   //  }
   //}
 #endif
-  // keep screen on
+  // keep screen on (mobile only - pref is not shown on desktop and platformKeepScreenOn() is a no-op there)
+#if PLATFORM_MOBILE
   if(cfg->Bool("keepScreenOn"))
     platformKeepScreenOn(true);
+#endif
 
   // setup page sizes on first run
   if(cfg->Float("pageWidth") == 0) {
