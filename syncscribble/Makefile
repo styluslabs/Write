@@ -252,6 +252,7 @@ MAIN_SOURCES = ../ugui/platforms/linuxmain.cpp
 TEST_TARGET = WriteTest
 TEST_SOURCES = \
   ../scribbletest/scribbletest.cpp \
+  ../scribbletest/imagecompare.cpp \
   ../scribbletest/headless.cpp \
   ../scribbletest/testmain.cpp
 DEFS += SVGGUI_NO_SDL SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
