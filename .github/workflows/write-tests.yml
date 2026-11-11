@@ -1,0 +1,51 @@
+name: Write tests
+
+# Builds WriteTest (debug build w/ ASan/UBSan) and runs it headless - see scribbletest/testmain.cpp
+# - FAIL fails the job; MINOR differences are shown as warnings (they don't fail the job)
+# - report.html (ref / output / diff images for tests that didn't PASS) is uploaded as an artifact
+
+on:
+  push:
+    branches: [ "master", "nosdl" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  linux-test:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    # SDL is not needed for Linux build (ugui/platforms/linuxmain.cpp) or WriteTest (scribbletest/headless.cpp)
+    - name: Checkout submodules
+      run: git submodule update --init stb pugixml miniz nanovgXC ulib usvg ugui scribbletest
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libx11-dev libxi-dev libxext-dev libxcursor-dev libxrandr-dev libgl-dev libopengl-dev libglx-dev
+    # ASan can fail w/ high mmap randomization used by recent runner kernels
+    - name: Reduce ASLR entropy for ASan
+      run: sudo sysctl vm.mmap_rnd_bits=28
+    - name: Build WriteTest
+      working-directory: syncscribble
+      run: make -j$(nproc) DEBUG=1 test_build
+    - name: Run tests
+      working-directory: syncscribble
+      run: |
+        set -o pipefail
+        ./Debug/WriteTest 2>&1 | tee writetest.log
+    - name: Annotate results
+      if: always()
+      working-directory: syncscribble
+      run: |
+        [ -f writetest.log ] || exit 0
+        grep -E '^test[0-9]+ MINOR' writetest.log | while read -r line; do echo "::warning title=WriteTest::$line"; done
+        grep -E '^test[0-9]+ FAIL' writetest.log | while read -r line; do echo "::error title=WriteTest::$line"; done
+        { echo '### WriteTest'; echo '```'; grep -vE '^\s*$' writetest.log | tail -n 60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: writetest-report
+        path: syncscribble/Debug/testout/
+        if-no-files-found: ignore
