@@ -10,10 +10,6 @@
 	path = miniz
 	url = https://github.com/richgel999/miniz.git
 	ignore = untracked
-[submodule "SDL"]
-	path = SDL
-	url = https://github.com/pbsurf/SDL.git
-	ignore = untracked
 [submodule "nanovgXC"]
 	path = nanovgXC
 	url = https://github.com/styluslabs/nanovgXC.git

@@ -620,6 +620,10 @@ int appMain(int argc, char* argv[])
   return 0;
 }
 
+// debug hook called after each SW frame is drawn (before present) - see scribbletest/redrawcheck.cpp
+void (*Application::swFrameHook)(const PlatformFramebuffer& fb, const Rect& dirty) = NULL;
+static Rect lastSWDirty;
+
 bool Application::processEvents()
 {
   return platformProcessEvents(true) && runApplication;
@@ -643,8 +647,11 @@ void Application::layoutAndDraw()
     }
     w = fb.width;  h = fb.height;
   }
-  if(layoutAndDraw(w, h))
+  if(layoutAndDraw(w, h)) {
+    if(!glRender && swFrameHook)
+      swFrameHook(platformGetSWFramebuffer(), lastSWDirty);
     platformPresent();
+  }
 }
 
 bool Application::layoutAndDraw(int w, int h)
@@ -753,6 +760,7 @@ void Application::layoutAndDrawSW()
 bool Application::layoutAndDrawSW(int w, int h)
 {
   Rect dirty = tracedGuiLayoutAndDraw(w, h);
+  lastSWDirty = dirty;
   if(!dirty.isValid())
     return false;
   TRACE(painter->endFrame());

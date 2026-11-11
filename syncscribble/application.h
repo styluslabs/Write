@@ -5,6 +5,8 @@
 #include "resources.h"
 
 class Painter;
+struct Rect;
+struct PlatformFramebuffer;
 class SvgGui;
 class Window;
 class Dialog;
@@ -31,6 +33,8 @@ public:
   static int execDialog(Dialog* dialog);
   static void asyncDialog(Dialog* dialog, const std::function<void(int)>& callback = NULL);
   static void finish() { runApplication = false; }
+  // debug hook called after each SW frame is drawn, before present (see scribbletest/redrawcheck.cpp)
+  static void (*swFrameHook)(const PlatformFramebuffer& fb, const Rect& dirty);
 
   static void sdlEvent(SDL_Event* event);
 
