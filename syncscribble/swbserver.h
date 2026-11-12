@@ -3,7 +3,9 @@
 // Shared whiteboard server, built into Write - run with `Write --server` (see swbServerMain() for options)
 // - C++ port of the node.js server (github.com/styluslabs/stylusboard): HTTP API on port (default 7000) for auth
 //  and creating/opening whiteboards, and raw TCP relay on port + 1 for the whiteboard data itself (scribblesync.cpp)
-// - single threaded, non-blocking sockets w/ poll(); all state is in memory except optional user database
+// - single threaded, non-blocking sockets w/ unet_poll() (ulib/unet.h); all state is in memory except optional
+//  user database
+// - unet_init() must be called before starting server (Write does this in appInit(); swbServerMain() does it too)
 // - core (Whiteboard: append data, replay history from offset) is independent of transport so that other
 //  transports (e.g., everything over HTTP on a single port) can be added later
 

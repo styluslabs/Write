@@ -1,41 +1,12 @@
 // Shared whiteboard server - see swbserver.h
 
+// sockets are handled by ulib/unet.h; platform specific code here is only for loading sqlite and reading password
 #ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <windows.h>
-#include <io.h>
-typedef int socklen_t;
-#define SWB_POLL WSAPoll
-#define SWB_SHUT_WR SD_SEND
-static int sockErr() { return WSAGetLastError(); }
-static bool wouldBlock(int err) { return err == WSAEWOULDBLOCK; }
-static bool tooManyFiles(int err) { return err == WSAEMFILE || err == WSAENOBUFS; }
-static void closeSocket(int s) { closesocket(SOCKET(s)); }
-static bool setNonBlocking(int s) { u_long nb = 1; return ioctlsocket(SOCKET(s), FIONBIO, &nb) == 0; }
 #else
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <netdb.h>
-#include <poll.h>
-#include <fcntl.h>
 #include <unistd.h>
-#include <errno.h>
 #include <termios.h>
 #include <dlfcn.h>
-#define SWB_POLL poll
-#define SWB_SHUT_WR SHUT_WR
-static int sockErr() { return errno; }
-static bool wouldBlock(int err) { return err == EAGAIN || err == EWOULDBLOCK || err == EINTR; }
-static bool tooManyFiles(int err) { return err == EMFILE || err == ENFILE || err == ENOBUFS || err == ENOMEM; }
-static void closeSocket(int s) { close(s); }
-static bool setNonBlocking(int s) { int f = fcntl(s, F_GETFL, 0); return f != -1 && fcntl(s, F_SETFL, f | O_NONBLOCK) != -1; }
-#endif
-
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0
 #endif
 
 #include "swbserver.h"
@@ -49,7 +20,7 @@ static bool setNonBlocking(int s) { int f = fcntl(s, F_GETFL, 0); return f != -1
 #include <random>
 #include <algorithm>
 #include "ulib/md5.h"
-#include "ulib/unet.h"  // unet_init()
+#include "ulib/unet.h"
 #include "ulib/stringutil.h"
 
 // relay message size limit (other than /data payload) and HTTP header limit
@@ -216,13 +187,10 @@ static long long wallClockMs()
       std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-static std::string addrToStr(const sockaddr_storage& addr)
+static std::string addrToStr(struct unet_addr* addr)
 {
-  char host[256] = "?", serv[32] = "?";
-  getnameinfo((const sockaddr*)&addr, sizeof(addr), host, sizeof(host), serv, sizeof(serv), NI_NUMERICHOST | NI_NUMERICSERV);
-  const char* h = host;
-  if(strncmp(h, "::ffff:", 7) == 0) h += 7;  // IPv4 mapped
-  return std::string(h) + ":" + serv;
+  char buf[256];
+  return unet_address_str(addr, buf, sizeof(buf)) == 0 ? std::string(buf) : std::string("?");
 }
 
 // user database
@@ -564,10 +532,10 @@ SWBServer::SWBServer(const SWBServerOptions& o) : opts(o), stopFlag(false) {}
 SWBServer::~SWBServer()
 {
   for(auto& c : conns) {
-    if(c->fd >= 0) closeSocket(c->fd);
+    if(c->fd >= 0) unet_close(c->fd);
   }
-  if(apiListen >= 0) closeSocket(apiListen);
-  if(swbListen >= 0) closeSocket(swbListen);
+  if(apiListen >= 0) unet_close(apiListen);
+  if(swbListen >= 0) unet_close(swbListen);
   if(logOut && logOut != stderr) fclose(logOut);
 }
 
@@ -596,78 +564,22 @@ void SWBServer::log(int level, const char* fmt, ...)
   fflush(f);
 }
 
-// create listening socket; returns -1 on error
+// create listening socket (all interfaces if host is empty; port 0 to choose free port); returns -1 on error
 static int listenSocket(const std::string& host, int port, std::string* err)
 {
-  std::string serv = std::to_string(port);
-  struct addrinfo hints;
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_flags = AI_PASSIVE;
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_STREAM;
-  struct addrinfo* res = NULL;
-  // for all interfaces, try dual stack IPv6 first, then IPv4
-  const char* h = host.empty() ? "::" : host.c_str();
-  if(getaddrinfo(h, serv.c_str(), &hints, &res) != 0 || !res) {
-    if(host.empty()) {
-      h = "0.0.0.0";
-      if(getaddrinfo(h, serv.c_str(), &hints, &res) != 0) res = NULL;
-    }
-    if(!res) {
-      *err = "unable to resolve " + host;
-      return -1;
-    }
+  int s = unet_socket(UNET_TCP, UNET_BIND, UNET_NOBLOCK, host.empty() ? NULL : host.c_str(), std::to_string(port).c_str());
+  if(s < 0 || unet_listen(s, 128) != 0) {
+    *err = fstring("unable to listen on %s port %d (error %d)", host.empty() ? "all interfaces" : host.c_str(), port, unet_errno());
+    if(s >= 0) unet_close(s);
+    return -1;
   }
-  // prefer IPv4 for explicit host (as unet does for client)
-  struct addrinfo* ai = res;
-  if(!host.empty()) {
-    for(struct addrinfo* a = res; a; a = a->ai_next) {
-      if(a->ai_family == AF_INET) { ai = a; break; }
-    }
-  }
-  int s = -1;
-  for(int attempt = 0; attempt < 2 && s < 0; ++attempt) {
-    if(attempt == 1) {
-      // dual stack failed (e.g. IPv6 disabled) - fall back to IPv4
-      if(!host.empty()) break;
-      freeaddrinfo(res);
-      res = NULL;
-      if(getaddrinfo("0.0.0.0", serv.c_str(), &hints, &res) != 0 || !res) break;
-      ai = res;
-    }
-#ifdef _WIN32
-    SOCKET ws = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-    s = ws == INVALID_SOCKET || ws > INT_MAX ? -1 : int(ws);
-#else
-    s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-#endif
-    if(s < 0) continue;
-    int one = 1, zero = 0;
-#ifndef _WIN32
-    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));  // allow quick restart
-#endif
-    if(ai->ai_family == AF_INET6)
-      setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&zero, sizeof(zero));
-    if(bind(s, ai->ai_addr, socklen_t(ai->ai_addrlen)) != 0 || listen(s, 128) != 0 || !setNonBlocking(s)) {
-      *err = fstring("unable to listen on port %d (error %d)", port, sockErr());
-      closeSocket(s);
-      s = -1;
-    }
-  }
-  if(res) freeaddrinfo(res);
-  if(s < 0 && err->empty())
-    *err = fstring("unable to create socket for port %d (error %d)", port, sockErr());
   return s;
 }
 
 static int socketPort(int s)
 {
-  sockaddr_storage addr;
-  socklen_t len = sizeof(addr);
-  if(getsockname(s, (sockaddr*)&addr, &len) != 0) return -1;
-  if(addr.ss_family == AF_INET) return ntohs(((sockaddr_in*)&addr)->sin_port);
-  if(addr.ss_family == AF_INET6) return ntohs(((sockaddr_in6*)&addr)->sin6_port);
-  return -1;
+  struct unet_addr addr;
+  return unet_address(s, &addr) == 0 ? unet_address_port(&addr) : -1;
 }
 
 bool SWBServer::start()
@@ -701,7 +613,7 @@ bool SWBServer::start()
     boundPort = socketPort(apiListen);
     swbListen = listenSocket(opts.host, boundPort + 1, &err);
     if(swbListen >= 0 || opts.port != 0) break;
-    closeSocket(apiListen);  // automatic port: try again
+    unet_close(apiListen);  // automatic port: try again
     apiListen = -1;
   }
   if(apiListen < 0 || swbListen < 0) {
@@ -716,52 +628,48 @@ bool SWBServer::start()
 
 void SWBServer::run()
 {
-  std::vector<struct pollfd> pfds;
+  std::vector<struct unet_pollfd> pfds;
   std::vector<SWBConn*> pconns;
   while(!stopFlag) {
     pfds.clear();
     pconns.clear();
-    // listeners are omitted while accept is paused (instead of fd = -1, which older WSAPoll rejects)
-    size_t nlisten = Clock::now() >= acceptPausedUntil ? 2 : 0;
-    for(size_t ii = 0; ii < nlisten; ++ii) {
-      struct pollfd p;
-      p.fd = ii == 0 ? apiListen : swbListen;
-      p.events = POLLIN;
-      p.revents = 0;
+    // listeners are ignored while accept is paused
+    bool acceptOK = Clock::now() >= acceptPausedUntil;
+    for(int lfd : {apiListen, swbListen}) {
+      struct unet_pollfd p;
+      p.sock = acceptOK ? lfd : -1;
+      p.events = UNET_POLLIN;
       pfds.push_back(p);
       pconns.push_back(NULL);
     }
     for(auto& c : conns) {
-      struct pollfd p;
-      p.fd = c->fd;
-      p.events = (c->closing && !c->halfClosed ? 0 : POLLIN) | (c->outq.empty() ? 0 : POLLOUT);
-      p.revents = 0;
+      struct unet_pollfd p;
+      p.sock = c->fd;
+      p.events = (c->closing && !c->halfClosed ? 0 : UNET_POLLIN) | (c->outq.empty() ? 0 : UNET_POLLOUT);
       pfds.push_back(p);
       pconns.push_back(c.get());
     }
     // timeout is short so that stop() is noticed promptly and timers are serviced
-    int n = SWB_POLL(pfds.data(), (unsigned long)pfds.size(), 200);
-    if(n < 0) {
-      int e = sockErr();
-      if(wouldBlock(e)) continue;
-      log(0, "poll() failed: error %d", e);
+    if(unet_poll(pfds.data(), int(pfds.size()), 0.2) < 0) {
+      log(0, "poll failed: error %d", unet_errno());
       break;
     }
-    if(nlisten && (pfds[0].revents & POLLIN)) acceptConns(apiListen, CONN_HTTP);
-    if(nlisten && (pfds[1].revents & POLLIN)) acceptConns(swbListen, CONN_SWB);
-    for(size_t ii = nlisten; ii < pfds.size(); ++ii) {
+    if(pfds[0].revents & UNET_POLLIN) acceptConns(apiListen, CONN_HTTP);
+    if(pfds[1].revents & UNET_POLLIN) acceptConns(swbListen, CONN_SWB);
+    for(size_t ii = 2; ii < pfds.size(); ++ii) {
       SWBConn* c = pconns[ii];
       short rev = pfds[ii].revents;
       if(!rev || c->dead) continue;
-      if(rev & POLLOUT)
+      if(rev & UNET_POLLOUT)
         flush(c);
-      if(!c->dead && (rev & (POLLIN | POLLHUP | POLLERR)))
+      if(!c->dead && (rev & (UNET_POLLIN | UNET_POLLHUP | UNET_POLLERR)))
         onReadable(c);
     }
     doTimers();
+    doTimers();
     // reap closed connections
     conns.erase(std::remove_if(conns.begin(), conns.end(), [](const std::unique_ptr<SWBConn>& c){
-      if(c->dead && c->fd >= 0) { closeSocket(c->fd); c->fd = -1; }
+      if(c->dead && c->fd >= 0) { unet_close(c->fd); c->fd = -1; }
       return c->dead;
     }), conns.end());
   }
@@ -771,38 +679,26 @@ void SWBServer::run()
 void SWBServer::acceptConns(int listenfd, int kind)
 {
   for(;;) {
-    sockaddr_storage addr;
-    socklen_t len = sizeof(addr);
-#ifdef _WIN32
-    SOCKET ws = accept(SOCKET(listenfd), (sockaddr*)&addr, &len);
-    int fd = ws == INVALID_SOCKET || ws > INT_MAX ? -1 : int(ws);
-#else
-    int fd = accept(listenfd, (sockaddr*)&addr, &len);
-#endif
+    struct unet_addr addr;
+    int fd = unet_accept(listenfd, &addr);
     if(fd < 0) {
-      int e = sockErr();
-      if(tooManyFiles(e)) {
-        log(1, "accept() failed (too many open files?): error %d", e);
+      int e = unet_errno();
+      if(!unet_would_block(e)) {
+        // e.g. too many open files - pause so we don't spin w/ listener always readable
+        log(1, "accept failed: error %d", e);
         acceptPausedUntil = Clock::now() + std::chrono::seconds(1);
       }
-      return;  // EAGAIN or other error
+      return;
     }
-    if(!setNonBlocking(fd)) {
-      closeSocket(fd);
+    // small whiteboard messages should go out immediately
+    if(unet_set_flags(fd, UNET_NOBLOCK | (kind == CONN_SWB ? UNET_NODELAY : 0)) != 0) {
+      unet_close(fd);
       continue;
-    }
-#ifdef SO_NOSIGPIPE
-    int nosigpipe = 1;  // macOS has no MSG_NOSIGNAL
-    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, (const char*)&nosigpipe, sizeof(nosigpipe));
-#endif
-    if(kind == CONN_SWB) {
-      int one = 1;  // small whiteboard messages should go out immediately
-      setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char*)&one, sizeof(one));
     }
     std::unique_ptr<SWBConn> c(new SWBConn);
     c->fd = fd;
     c->kind = kind;
-    c->remote = addrToStr(addr);
+    c->remote = addrToStr(&addr);
     c->lastProgress = Clock::now();
     if(kind == CONN_SWB)
       log(2, "%s connected", c->remote.c_str());
@@ -813,8 +709,8 @@ void SWBServer::acceptConns(int listenfd, int kind)
 void SWBServer::onReadable(SWBConn* c)
 {
   char buf[65536];
-  int n = recv(c->fd, buf, int(sizeof(buf)), 0);
-  if(n < 0 && wouldBlock(sockErr()))
+  int n = unet_recv(c->fd, buf, int(sizeof(buf)));
+  if(n < 0 && unet_would_block(unet_errno()))
     return;
   if(n <= 0) {
     // peer closed or error
@@ -852,10 +748,12 @@ void SWBServer::flush(SWBConn* c)
   while(!c->outq.empty() && !c->dead) {
     SWBConn::Seg& seg = c->outq.front();
     size_t len = std::min(seg.end - seg.pos, size_t(1) << 20);
-    int n = send(c->fd, seg.data->data() + seg.pos, int(len), MSG_NOSIGNAL);
+    // SIGPIPE is ignored (by unet_init()), so a send to closed connection just returns an error
+    int n = unet_send(c->fd, seg.data->data() + seg.pos, int(len));
     if(n < 0) {
-      if(wouldBlock(sockErr())) return;
-      log(1, "%s send error %d", c->remote.c_str(), sockErr());
+      int e = unet_errno();
+      if(unet_would_block(e)) return;
+      log(1, "%s send error %d", c->remote.c_str(), e);
       leaveWhiteboard(c);
       c->dead = true;
       return;
@@ -868,7 +766,7 @@ void SWBServer::flush(SWBConn* c)
   }
   if(c->outq.empty() && c->closing && !c->halfClosed && !c->dead) {
     // all data sent - half close and wait (briefly) for peer to close so pending data isn't lost to a RST
-    shutdown(c->fd, SWB_SHUT_WR);
+    unet_shutdown(c->fd, UNET_SHUT_WR);
     c->halfClosed = true;
     c->closeDeadline = Clock::now() + std::chrono::seconds(LINGER_SECS);
   }
