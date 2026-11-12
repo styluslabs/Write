@@ -45,6 +45,9 @@ void ScribbleSync::connectSync(const char* server, const pugi::xml_node& xml, bo
   enableTX = master || !rxonly;  // check for RX only (lecture) mode
   // sync view box enabled by default for lecture (rxonly) mode
   syncViewBox = rxonly ? (master ? SYNCVIEW_MASTER : SYNCVIEW_SLAVE) : SYNCVIEW_OFF;
+  // server advertises relay via HTTP Upgrade on API port (single port, can be behind reverse proxy)
+  relayUpgrade = strcmp(xml.attribute("relay").as_string(), "upgrade") == 0;
+  pingTicks = 0;
   // create fixed part of start URL; version is protocol version
   startURL = "/start?version=1&user=" + syncUser
       + "&document=" + docName + "&token=" + xml.attribute("token").as_string();
@@ -100,12 +103,14 @@ int ScribbleSync::netThreadFn(void* _self)
 
   int apiport;
   std::string host = splitHostPort(self->syncServer, &apiport);
-  std::string relayport = std::to_string(apiport + 1);
+  // old servers: relay on port + 1
+  std::string relayport = std::to_string(self->relayUpgrade ? apiport : apiport + 1);
   while(self->syncState != SYNC_OFF) {
     // don't want to block on recv in main thread; also, UNET_NOBLOCK required to make connect non-blocking
     self->socket = unet_socket(UNET_TCP, UNET_CONNECT, UNET_NOBLOCK, host.c_str(), relayport.c_str());
     // For a non-blocking socket, we need to use select to wait for writability to indicate connected!
-    if(self->socket != -1 && unet_select(-1, self->socket, 8) == UNET_RDY_WR) {  // wait 8 seconds for connect
+    if(self->socket != -1 && unet_select(-1, self->socket, 8) == UNET_RDY_WR  // wait 8 seconds for connect
+        && (!self->relayUpgrade || upgradeConnection(self->socket, self->syncServer, 8))) {
       event.user.code = SOCKET_CONNECTED;
       pushSyncEvent(&event);
       self->netSem->wait();  //SDL_SemWait(self->netSem);  // wait for main thread to see if we need to wait for both read and write
@@ -137,6 +142,36 @@ int ScribbleSync::netThreadFn(void* _self)
     self->netSem->wait();  //SDL_SemWait(self->netSem);  // wait for signal before reconnecting
   }
   return 0;
+}
+
+// send GET /v1/swb w/ Upgrade: swb and wait for 101 response; reads only the response header, so subsequent
+//  data received on socket is all relay data
+bool ScribbleSync::upgradeConnection(int sock, const std::string& hostport, double timeout)
+{
+  std::string req = "GET /v1/swb HTTP/1.1\r\nHost: " + hostport + "\r\nUpgrade: swb\r\nConnection: Upgrade\r\n"
+      "User-Agent: " + ScribbleApp::app->userAgent() + "\r\n\r\n";
+  size_t sent = 0;
+  Timestamp t0 = mSecSinceEpoch();
+  while(sent < req.size()) {
+    double dt = timeout - (mSecSinceEpoch() - t0)/1000;
+    if(dt <= 0 || unet_select(-1, sock, dt) != UNET_RDY_WR) return false;
+    int n = unet_send(sock, req.data() + sent, req.size() - sent);
+    if(n < 0) return false;
+    sent += n;
+  }
+  // read one byte at a time so we don't consume any data after the header (response header is small)
+  std::string resp;
+  while(resp.size() < 8192 && (resp.size() < 4 || resp.compare(resp.size() - 4, 4, "\r\n\r\n") != 0)) {
+    double dt = timeout - (mSecSinceEpoch() - t0)/1000;
+    char c;
+    if(dt <= 0 || unet_select(sock, -1, dt) <= 0 || unet_recv(sock, &c, 1) != 1) return false;
+    resp.push_back(c);
+  }
+  if(resp.compare(0, 12, "HTTP/1.1 101") != 0) {
+    SCRIBBLE_LOG("Whiteboard connection upgrade failed: %s\n", resp.substr(0, resp.find('\r')).c_str());
+    return false;
+  }
+  return true;
 }
 
 bool ScribbleSync::sdlEvent(SDL_Event* event)
@@ -240,6 +275,15 @@ void ScribbleSync::doTimerEvent()
   }
   if(syncState != SYNC_CONNECTED)
     return;
+  // keepalive so reverse proxy doesn't close idle connection (nginx default timeout is 60 s); skip if data is
+  //  waiting to be sent; old servers don't support /ping, so only send when using upgrade
+  if(relayUpgrade && ++pingTicks >= 30 && !pendingWrite) {
+    pingTicks = 0;
+    const char* ping = "/ping\n";
+    int written = unet_send(socket, ping, strlen(ping));
+    if(written >= 0 && written < int(strlen(ping)))
+      pendingWrite.reset(new MemStream(ping + written, strlen(ping) - written));
+  }
   if(syncViewBox == SYNCVIEW_MASTER) {
     DocViewBox vb = scribbleDoc->activeArea->getViewBox();
     if(vb != lastViewBox)
@@ -805,6 +849,7 @@ void ScribbleSync::sendDataStr(MemStream& ss)
     pendingWrite.reset(new MemStream(ss.size() + hdr.size()));
     *pendingWrite << hdr.substr(std::max(written, 0));
     pendingWrite->write(ss.data(), ss.size());
+    pendingWrite->seek(0);  // send from beginning
     return;
   }
   written = unet_send(socket, ss.data(), ss.size());

@@ -3,13 +3,12 @@
 // Shared whiteboard server, built into Write - run with `Write --server` (see swbServerMain() for options)
 // - C++ port of the node.js server (github.com/styluslabs/stylusboard): HTTP API on port (default 7000) for auth
 //  and creating/opening whiteboards, and raw TCP relay on port + 1 for the whiteboard data itself (scribblesync.cpp)
+// - relay is also available on the API port via GET /v1/swb w/ "Upgrade: swb" (advertised to clients by
+//  relay='upgrade' in <swb> reply), so a single port can be put behind a reverse proxy; port + 1 is for old clients
 // - single threaded, non-blocking sockets w/ unet_poll() (ulib/unet.h); all state is in memory
 // - no authentication: /v1/auth accepts any user (but whiteboard tokens are still random, so relay connections
-//  require a token from /v1/openswb); for public servers, auth and TLS are to be provided by a reverse proxy once
-//  the single port HTTP transport is supported
+//  require a token from /v1/openswb); for public servers, auth and TLS are to be provided by a reverse proxy
 // - unet_init() must be called before starting server (Write does this in appInit(); swbServerMain() does it too)
-// - core (Whiteboard: append data, replay history from offset) is independent of transport so that other
-//  transports (e.g., everything over HTTP on a single port) can be added later
 
 #include <string>
 #include <vector>

@@ -193,6 +193,7 @@ public:
   static Dim getPreScale();
   static void getScreenPageDims(int* w, int* h);
   static bool openURL(const char* url);
+  const std::string& userAgent() const { return httpUserAgent; }
 #if PLATFORM_ANDROID
   static bool hasAndroidPermission();
   static bool requestAndroidPermission();

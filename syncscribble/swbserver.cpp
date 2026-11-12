@@ -600,6 +600,9 @@ bool SWBServer::handleSWBCommand(SWBConn* c, const std::string& cmdstr)
     c->expectData = size_t(len);
     c->dataBuf.reserve(size_t(len));
   }
+  else if(command == "/ping") {
+    // keepalive (no reply - client counts all bytes received as whiteboard history)
+  }
   else if(command == "/end") {
     log(2, "%s disconnected (/end)", c->remote.c_str());
     closeConn(c, true);
@@ -624,7 +627,7 @@ void SWBServer::processHTTP(SWBConn* c)
     return;
   }
   std::string hdr = c->inbuf.substr(0, hdrend);
-  c->inbuf.clear();
+  c->inbuf.erase(0, hdrend + 4);
   // request line
   size_t eol = hdr.find("\r\n");
   std::string reqline = hdr.substr(0, eol);
@@ -634,7 +637,7 @@ void SWBServer::processHTTP(SWBConn* c)
   std::string extraHeaders;
   if(parts.size() == 3 && parts[2].compare(0, 5, "HTTP/") == 0) {
     // headers
-    std::string cookie, useragent;
+    std::string cookie, useragent, upgrade;
     size_t pos = eol;
     while(pos != std::string::npos && pos < hdr.size()) {
       pos += 2;
@@ -646,17 +649,41 @@ void SWBServer::processHTTP(SWBConn* c)
         std::string value = trimStr(line.substr(colon + 1));
         if(name == "cookie") cookie = cookie.empty() ? value : cookie + "; " + value;
         else if(name == "user-agent" || name == "user agent") useragent = value;  // Write sends "User Agent"
+        else if(name == "upgrade") upgrade = toLower(value);
       }
       pos = next;
     }
-    std::string setCookie;
-    body = handleHTTP(parts[0], parts[1], cookie, c->remote, &status, &setCookie);
-    if(!setCookie.empty())
-      extraHeaders = "Set-Cookie: " + setCookie + "\r\n";
-    log(2, "%s - \"%s\" %d - \"%s\"", c->remote.c_str(), reqline.c_str(), status, useragent.c_str());
+    // GET /v1/swb w/ "Upgrade: swb" switches connection to whiteboard relay protocol, allowing everything to
+    //  go through a single port (and thus through a reverse proxy for TLS and auth)
+    QueryArgs args;
+    if(parseTarget(parts[1], args) == "/v1/swb") {
+      bool swbUpgrade = false;
+      for(const std::string& proto : splitStr<std::vector>(upgrade.c_str(), ',', true))
+        swbUpgrade = swbUpgrade || trimStr(proto) == "swb";
+      if(parts[0] == "GET" && swbUpgrade) {
+        log(2, "%s - \"%s\" 101 - \"%s\"", c->remote.c_str(), reqline.c_str(), useragent.c_str());
+        queue(c, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: swb\r\nConnection: Upgrade\r\n\r\n");
+        c->kind = CONN_SWB;
+        unet_set_flags(c->fd, UNET_NOBLOCK | UNET_NODELAY);
+        // client may send relay commands immediately after request w/o waiting for 101
+        if(!c->inbuf.empty())
+          processSWB(c);
+        return;
+      }
+      status = 426;
+      extraHeaders = "Upgrade: swb\r\n";
+      log(2, "%s - \"%s\" %d - \"%s\"", c->remote.c_str(), reqline.c_str(), status, useragent.c_str());
+    }
+    else {
+      std::string setCookie;
+      body = handleHTTP(parts[0], parts[1], cookie, c->remote, &status, &setCookie);
+      if(!setCookie.empty())
+        extraHeaders = "Set-Cookie: " + setCookie + "\r\n";
+      log(2, "%s - \"%s\" %d - \"%s\"", c->remote.c_str(), reqline.c_str(), status, useragent.c_str());
+    }
   }
   static const std::map<int, const char*> reasons = {{200, "OK"}, {400, "Bad Request"}, {401, "Unauthorized"},
-      {403, "Forbidden"}, {404, "Not Found"}, {405, "Method Not Allowed"}, {408, "Request Timeout"}};
+      {403, "Forbidden"}, {404, "Not Found"}, {405, "Method Not Allowed"}, {408, "Request Timeout"}, {426, "Upgrade Required"}};
   auto reason = reasons.find(status);
   std::string resp = fstring("HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n",
       status, reason != reasons.end() ? reason->second : "Error", int(body.size()));
@@ -719,7 +746,7 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
       // all args (name, title, rxonly, ...) are passed back to clients opening the whiteboard
       std::string attribs;
       for(auto& kv : args) {
-        if(!isXmlName(kv.first) || kv.first == "user" || kv.first == "token") continue;
+        if(!isXmlName(kv.first) || kv.first == "user" || kv.first == "token" || kv.first == "relay") continue;
         if(attribs.find(" " + kv.first + "='") != std::string::npos) continue;  // duplicate
         attribs += " " + kv.first + "='" + xmlEscape(kv.second) + "'";
       }
@@ -736,7 +763,9 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
     }
     Whiteboard* wb = it->second.get();
     *status = 200;
-    return "<swb" + wb->attribs + " user='" + xmlEscape(user) + "' token='" + md5hex(user + wb->token) + "'/>";
+    // relay='upgrade' tells client to use GET /v1/swb w/ Upgrade on this port instead of connecting to port + 1
+    return "<swb" + wb->attribs + " user='" + xmlEscape(user) + "' token='" + md5hex(user + wb->token)
+        + "' relay='upgrade'/>";
   }
   *status = 404;
   return "";

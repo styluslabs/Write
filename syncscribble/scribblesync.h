@@ -71,6 +71,8 @@ private:
   std::map<UUID_t, Element*> strokemap;
   typedef std::map<UUID_t, Element*>::iterator StrokeMapIter;
   int timerCount = 0;
+  bool relayUpgrade = false;  // connect to relay via HTTP Upgrade on API port instead of port + 1
+  int pingTicks = 0;
   Timer* ssyncTimer = NULL;
 
   void startSession();
@@ -99,6 +101,7 @@ private:
   Semaphore* netSem = NULL;  //SDL_sem*
   std::thread* netThread = NULL;  //SDL_Thread* netThread = NULL;
   static int netThreadFn(void* _self);
+  static bool upgradeConnection(int sock, const std::string& hostport, double timeout);
 };
 
 #endif
