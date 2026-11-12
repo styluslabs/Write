@@ -46,7 +46,8 @@ void ScribbleSync::connectSync(const char* server, const pugi::xml_node& xml, bo
   // sync view box enabled by default for lecture (rxonly) mode
   syncViewBox = rxonly ? (master ? SYNCVIEW_MASTER : SYNCVIEW_SLAVE) : SYNCVIEW_OFF;
   // server advertises relay via HTTP Upgrade on API port (single port, can be behind reverse proxy)
-  relayUpgrade = strcmp(xml.attribute("relay").as_string(), "upgrade") == 0;
+  std::vector<std::string> relays = splitStr<std::vector>(xml.attribute("relay").as_string(), ' ', true);
+  relayUpgrade = std::find(relays.begin(), relays.end(), "upgrade") != relays.end();
   pingTicks = 0;
   // create fixed part of start URL; version is protocol version
   startURL = "/start?version=1&user=" + syncUser

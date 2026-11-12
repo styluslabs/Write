@@ -3,8 +3,10 @@
 // Shared whiteboard server, built into Write - run with `Write --server` (see swbServerMain() for options)
 // - C++ port of the node.js server (github.com/styluslabs/stylusboard): HTTP API on port (default 7000) for auth
 //  and creating/opening whiteboards, and raw TCP relay on port + 1 for the whiteboard data itself (scribblesync.cpp)
-// - relay is also available on the API port via GET /v1/swb w/ "Upgrade: swb" (advertised to clients by
-//  relay='upgrade' in <swb> reply), so a single port can be put behind a reverse proxy; port + 1 is for old clients
+// - relay is also available on the API port, so a single port can be put behind a reverse proxy (port + 1 is for
+//  old clients); available methods are advertised to clients by relay='http upgrade' in <swb> reply:
+//  - http: plain HTTP requests (long polling), so clients can use platform HTTP(S) stack - see handleRelayHTTP()
+//  - upgrade: GET /v1/swb w/ "Upgrade: swb" switches connection to raw relay protocol
 // - single threaded, non-blocking sockets w/ unet_poll() (ulib/unet.h); all state is in memory
 // - no authentication: /v1/auth accepts any user (but whiteboard tokens are still random, so relay connections
 //  require a token from /v1/openswb); for public servers, auth and TLS are to be provided by a reverse proxy
@@ -24,6 +26,8 @@ struct SWBServerOptions
   int port = 7000;  // HTTP API port; whiteboard relay uses port + 1; 0 to choose (free) ports automatically
   double delDelay = 0;  // seconds to keep whiteboard after last user disconnects
   double sendTimeout = 60;  // disconnect client if queued data can't be sent for this many seconds
+  double pollTimeout = 25;  // HTTP relay: max time to hold poll request w/o new data
+  double pollClientTimeout = 30;  // HTTP relay: client is disconnected if no request (or pending poll) for this long
   size_t maxDataLen = size_t(256) << 20;  // max length of single /data message
   // behind reverse proxy: use X-Remote-User header (if present) as user name and X-Real-IP or X-Forwarded-For as
   //  client address; server must only be reachable via proxy (e.g. host = 127.0.0.1), since headers can be forged
@@ -35,6 +39,8 @@ struct SWBServerOptions
 };
 
 struct SWBConn;
+struct SWBPollClient;
+struct HTTPRequest;
 
 class SWBServer
 {
@@ -47,7 +53,8 @@ public:
     std::string name;
     std::string attribs;  // XML attributes for <swb> reply to /v1/openswb
     std::string token;
-    std::vector<SWBConn*> clients;
+    std::vector<SWBConn*> clients;  // raw relay connections
+    std::vector<SWBPollClient*> pollers;  // HTTP relay clients
     Clock::time_point deleteAt;  // valid if deletePending
     bool deletePending = false;
 
@@ -85,12 +92,22 @@ private:
   void flush(SWBConn* c);
   void queue(SWBConn* c, Chunk data, size_t pos = 0, size_t end = std::string::npos);
   void queue(SWBConn* c, std::string s) { queue(c, std::make_shared<const std::string>(std::move(s))); }
+  void queueHistory(SWBConn* c, Whiteboard* wb, size_t from, size_t to);
   void closeConn(SWBConn* c, bool graceful);
   void leaveWhiteboard(SWBConn* c);
+  void memberLeft(Whiteboard* wb, const std::string& user);
   void broadcast(Whiteboard* wb, Chunk data);
+  Whiteboard* checkStart(const std::string& repo, const std::string& user, const std::string& token,
+      const std::string& proxyUser, const std::string& remote, std::string* deniedMsg);
+  void kickUser(Whiteboard* wb, const std::string& user, SWBConn* exceptConn, SWBPollClient* exceptPoll);
   void processSWB(SWBConn* c);
   bool handleSWBCommand(SWBConn* c, const std::string& cmdstr);
   void processHTTP(SWBConn* c);
+  void handleRequest(SWBConn* c, HTTPRequest& req);
+  void sendHTTP(SWBConn* c, int status, const std::string& body, const std::string& extraHeaders, bool keepAlive);
+  void handleRelayHTTP(SWBConn* c, HTTPRequest& req);
+  void respondPoll(SWBPollClient* pc);
+  void removePollClient(SWBPollClient* pc);
   std::string handleHTTP(const std::string& method, const std::string& target,
       const std::string& cookie, const std::string& remote, const std::string& proxyUser, int* status,
       std::string* setCookie);
@@ -106,6 +123,7 @@ private:
   std::vector<std::unique_ptr<SWBConn>> conns;
   std::map<std::string, std::unique_ptr<Whiteboard>> whiteboards;
   std::map<std::string, Session> sessions;
+  std::map<std::string, std::unique_ptr<SWBPollClient>> pollClients;
   FILE* logOut = NULL;
 };
 

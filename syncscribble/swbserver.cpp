@@ -24,6 +24,10 @@ static constexpr size_t HIST_MERGE_COUNT = 64;
 static constexpr int SESSION_LIFETIME_SECS = 5*60;
 // time to wait for client to close connection after we finish sending (graceful close)
 static constexpr int LINGER_SECS = 5;
+// close idle keep-alive HTTP connections (w/o pending poll) after this long
+static constexpr int HTTP_IDLE_SECS = 60;
+// max bytes of history returned by a single poll request
+static constexpr size_t MAX_POLL_BYTES = 4 << 20;
 
 enum ConnKind { CONN_HTTP = 1, CONN_SWB = 2 };
 
@@ -46,6 +50,12 @@ struct SWBConn
   SWBServer::Whiteboard* wb = NULL;
   std::string user;
   std::string proxyUser;  // user authenticated by reverse proxy (w/ trustProxy)
+  // HTTP
+  std::unique_ptr<HTTPRequest> req;  // header received, waiting for body
+  SWBPollClient* pollWait = NULL;  // poll request waiting for data (no further requests processed until answered)
+  bool pollKeepAlive = false;
+  bool resumeInput = false;  // pipelined requests to process after deferred response is sent
+  SWBServer::Clock::time_point lastActivity;
 };
 
 // utility fns
@@ -101,6 +111,33 @@ static std::string urlDecode(const std::string& s)
 }
 
 typedef std::vector<std::pair<std::string, std::string>> QueryArgs;
+
+struct HTTPRequest
+{
+  std::string reqline, method, target, path;
+  QueryArgs args;
+  std::string cookie, useragent, upgrade, proxyUser, realIP, forwardedFor;
+  bool keepAlive = false;
+  bool expect100 = false;
+  bool chunked = false;
+  long long contentLength = 0;
+  std::string body;
+};
+
+// whiteboard client using HTTP relay (long polling)
+struct SWBPollClient
+{
+  std::string id;  // secret session id (from /v1/swb/start)
+  std::string user;
+  std::string remote;
+  SWBServer::Whiteboard* wb = NULL;  // NULL after leaving whiteboard (e.g. kicked)
+  std::string deniedMsg;  // if kicked, returned to next request
+  SWBConn* poll = NULL;  // connection w/ pending poll request
+  size_t pollOffset = 0;
+  SWBServer::Clock::time_point pollDeadline;
+  SWBServer::Clock::time_point lastSeen;
+  long long lastSeq = 0;
+};
 
 // split "/path?a=1&b=2" into path and args (in order; first occurrence wins in getArg())
 static std::string parseTarget(const std::string& target, QueryArgs& args)
@@ -340,10 +377,23 @@ void SWBServer::run()
       if(!c->dead && (rev & (UNET_POLLIN | UNET_POLLHUP | UNET_POLLERR)))
         onReadable(c);
     }
-    doTimers();
+    // pipelined HTTP requests that arrived while waiting to answer a poll
+    for(size_t ii = 0; ii < conns.size(); ++ii) {
+      SWBConn* c = conns[ii].get();
+      if(c->resumeInput && !c->dead) {
+        c->resumeInput = false;
+        processHTTP(c);
+      }
+    }
     doTimers();
     // reap closed connections
     conns.erase(std::remove_if(conns.begin(), conns.end(), [](const std::unique_ptr<SWBConn>& c){
+      if(c->dead && c->pollWait) {
+        // client will repeat poll (w/ same offset) on new connection
+        c->pollWait->poll = NULL;
+        c->pollWait->lastSeen = Clock::now();
+        c->pollWait = NULL;
+      }
       if(c->dead && c->fd >= 0) { unet_close(c->fd); c->fd = -1; }
       return c->dead;
     }), conns.end());
@@ -375,6 +425,7 @@ void SWBServer::acceptConns(int listenfd, int kind)
     c->kind = kind;
     c->remote = addrToStr(&addr);
     c->lastProgress = Clock::now();
+    c->lastActivity = c->lastProgress;
     if(kind == CONN_SWB)
       log(2, "%s connected", c->remote.c_str());
     conns.push_back(std::move(c));
@@ -395,6 +446,7 @@ void SWBServer::onReadable(SWBConn* c)
     c->dead = true;
     return;
   }
+  c->lastActivity = Clock::now();
   if(c->closing)
     return;  // discard input after close requested
   if(opts.dump && opts.logLevel >= 3)
@@ -465,6 +517,24 @@ void SWBServer::broadcast(Whiteboard* wb, Chunk data)
   std::vector<SWBConn*> clients = wb->clients;
   for(SWBConn* c : clients)
     queue(c, data);
+  // answer pending polls
+  std::vector<SWBPollClient*> pollers = wb->pollers;
+  for(SWBPollClient* pc : pollers) {
+    if(pc->poll)
+      respondPoll(pc);
+  }
+}
+
+// queue history bytes [from, to) w/o copying
+void SWBServer::queueHistory(SWBConn* c, Whiteboard* wb, size_t from, size_t to)
+{
+  to = std::min(to, wb->histSize);
+  if(from >= to) return;
+  size_t idx = std::upper_bound(wb->histStart.begin(), wb->histStart.end(), from) - wb->histStart.begin() - 1;
+  for(; idx < wb->history.size() && wb->histStart[idx] < to && !c->dead; ++idx) {
+    size_t start = wb->histStart[idx];
+    queue(c, wb->history[idx], from > start ? from - start : 0, to - start);
+  }
 }
 
 // remove client from whiteboard; equivalent of disconn() in node.js server
@@ -476,13 +546,77 @@ void SWBServer::leaveWhiteboard(SWBConn* c)
   auto it = std::find(wb->clients.begin(), wb->clients.end(), c);
   if(it == wb->clients.end()) return;
   wb->clients.erase(it);
-  if(wb->clients.empty()) {
+  memberLeft(wb, c->user);
+}
+
+// called after any client (raw or HTTP relay) leaves whiteboard
+void SWBServer::memberLeft(Whiteboard* wb, const std::string& user)
+{
+  if(wb->clients.empty() && wb->pollers.empty()) {
     // delete whiteboard after specified delay after last user disconnects
     wb->deletePending = true;
     wb->deleteAt = Clock::now() + std::chrono::milliseconds(int64_t(opts.delDelay*1000));
   }
   else
-    broadcast(wb, std::make_shared<const std::string>("<undo><disconnect name='" + c->user + "'/></undo>\n"));
+    broadcast(wb, std::make_shared<const std::string>("<undo><disconnect name='" + user + "'/></undo>\n"));
+}
+
+// validate start request (raw or HTTP relay); returns whiteboard (created for test token) or NULL w/ deniedMsg set
+SWBServer::Whiteboard* SWBServer::checkStart(const std::string& repo, const std::string& user,
+    const std::string& token, const std::string& proxyUser, const std::string& remote, std::string* deniedMsg)
+{
+  auto it = whiteboards.find(repo);
+  Whiteboard* wb = it != whiteboards.end() ? it->second.get() : NULL;
+  if(!proxyUser.empty() && user != proxyUser) {
+    log(1, "%s: start user %s does not match proxy user %s", remote.c_str(), user.c_str(), proxyUser.c_str());
+    *deniedMsg = "<undo><accessdenied message='Whiteboard user does not match login.'/></undo>\n";
+    return NULL;
+  }
+  if(token == "SCRIBBLE_SYNC_TEST" && opts.enableTest) {
+    log(2, "%s: connecting to test whiteboard %s as %s", remote.c_str(), repo.c_str(), user.c_str());
+    if(!wb) {
+      wb = new Whiteboard;
+      wb->name = repo;
+      whiteboards[repo].reset(wb);
+    }
+    return wb;
+  }
+  if(!wb || token != md5hex(user + wb->token)) {
+    log(1, "%s: whiteboard not found or invalid token", remote.c_str());
+    *deniedMsg = "<undo><accessdenied message='Whiteboard not found. Please try again.'/></undo>\n";
+    return NULL;
+  }
+  return wb;
+}
+
+// if user was already connected as a different client, remove old client (call after adding new client, so
+//  whiteboard isn't deleted if old client was the only client)
+void SWBServer::kickUser(Whiteboard* wb, const std::string& user, SWBConn* exceptConn, SWBPollClient* exceptPoll)
+{
+  static const char* msg = "<undo><accessdenied message='User logged in from another location.'/></undo>\n";
+  std::vector<SWBConn*> clients = wb->clients;
+  for(SWBConn* old : clients) {
+    if(old != exceptConn && old->user == user) {
+      log(2, "disconnecting %s due to new connection for user: %s", old->remote.c_str(), user.c_str());
+      queue(old, msg);
+      closeConn(old, true);
+    }
+  }
+  std::vector<SWBPollClient*> pollers = wb->pollers;
+  for(SWBPollClient* old : pollers) {
+    if(old != exceptPoll && old->user == user) {
+      log(2, "disconnecting %s (HTTP) due to new connection for user: %s", old->remote.c_str(), user.c_str());
+      old->deniedMsg = msg;
+      wb->pollers.erase(std::find(wb->pollers.begin(), wb->pollers.end(), old));
+      old->wb = NULL;
+      memberLeft(wb, user);
+      // client gets message on next request (or now if poll is pending)
+      if(old->poll) {
+        respondPoll(old);
+        removePollClient(old);
+      }
+    }
+  }
 }
 
 // shared whiteboard relay protocol - newline terminated commands; /data?length=N is followed by N bytes of data
@@ -536,6 +670,8 @@ bool SWBServer::handleSWBCommand(SWBConn* c, const std::string& cmdstr)
     if(it != whiteboards.end()) {
       for(SWBConn* cl : it->second->clients)
         names.push_back(cl->user);
+      for(SWBPollClient* pc : it->second->pollers)
+        names.push_back(pc->user);
     }
     queue(c, it != whiteboards.end() ? joinStr(names, ",") : std::string("-"));
   }
@@ -544,58 +680,27 @@ bool SWBServer::handleSWBCommand(SWBConn* c, const std::string& cmdstr)
     //  uuid (echoed in connect message), token = md5(user + whiteboard.token)
     std::string repo = argStr(args, "document");
     std::string user = argStr(args, "user");
-    std::string token = argStr(args, "token");
-    auto it = whiteboards.find(repo);
-    Whiteboard* wb = it != whiteboards.end() ? it->second.get() : NULL;
     if(c->wb) {
       log(1, "%s: /start received while already connected", c->remote.c_str());
       closeConn(c, false);
       return false;
     }
-    if(!c->proxyUser.empty() && user != c->proxyUser) {
-      log(1, "%s: /start user %s does not match proxy user %s", c->remote.c_str(), user.c_str(), c->proxyUser.c_str());
-      queue(c, "<undo><accessdenied message='Whiteboard user does not match login.'/></undo>\n");
-      closeConn(c, true);
-      return false;
-    }
-    if(token == "SCRIBBLE_SYNC_TEST" && opts.enableTest) {
-      log(2, "%s: connecting to test whiteboard %s as %s", c->remote.c_str(), repo.c_str(), user.c_str());
-      if(!wb) {
-        wb = new Whiteboard;
-        wb->name = repo;
-        whiteboards[repo].reset(wb);
-      }
-    }
-    else if(!wb || token != md5hex(user + wb->token)) {
-      log(1, "%s: whiteboard not found or invalid token", c->remote.c_str());
-      queue(c, "<undo><accessdenied message='Whiteboard not found. Please try again.'/></undo>\n");
+    std::string denied;
+    Whiteboard* wb = checkStart(repo, user, argStr(args, "token"), c->proxyUser, c->remote, &denied);
+    if(!wb) {
+      queue(c, denied);
       closeConn(c, true);
       return false;
     }
     c->user = user;
     // send history
     long long offset = atoll(argStr(args, "offset", "0").c_str());
-    if(offset < 0) offset = 0;
-    if(size_t(offset) < wb->histSize) {
-      size_t idx = std::upper_bound(wb->histStart.begin(), wb->histStart.end(), size_t(offset)) - wb->histStart.begin() - 1;
-      queue(c, wb->history[idx], size_t(offset) - wb->histStart[idx]);
-      for(++idx; idx < wb->history.size() && !c->dead; ++idx)
-        queue(c, wb->history[idx]);
-    }
+    queueHistory(c, wb, size_t(std::max(offset, 0LL)), wb->histSize);
     if(c->dead) return false;
     c->wb = wb;
     wb->clients.push_back(c);
     wb->deletePending = false;
-    // if user was already connected as a different client, remove old client (only now, so whiteboard isn't
-    //  deleted if it was the only client)
-    std::vector<SWBConn*> clients = wb->clients;
-    for(SWBConn* old : clients) {
-      if(old != c && old->user == user) {
-        log(2, "disconnecting %s due to connection of %s for user: %s", old->remote.c_str(), c->remote.c_str(), user.c_str());
-        queue(old, "<undo><accessdenied message='User logged in from another location.'/></undo>\n");
-        closeConn(old, true);
-      }
-    }
+    kickUser(wb, user, c, NULL);
     // client uses uuid to distinguish this connect message from previous ones when reconnecting
     std::string msg = "<undo><connect name='" + user + "' uuid='" + argStr(args, "uuid", "undefined") + "'/></undo>\n";
     broadcast(wb, std::make_shared<const std::string>(std::move(msg)));
@@ -626,93 +731,279 @@ bool SWBServer::handleSWBCommand(SWBConn* c, const std::string& cmdstr)
   return true;
 }
 
+// parse request line and headers; returns false if malformed
+static bool parseHTTPHeader(const std::string& hdr, HTTPRequest& req)
+{
+  size_t eol = hdr.find("\r\n");
+  req.reqline = hdr.substr(0, eol);
+  std::vector<std::string> parts = splitStr<std::vector>(req.reqline.c_str(), ' ', true);
+  if(parts.size() != 3 || parts[2].compare(0, 5, "HTTP/") != 0)
+    return false;
+  req.method = parts[0];
+  req.target = parts[1];
+  req.path = parseTarget(req.target, req.args);
+  bool http11 = parts[2] != "HTTP/1.0";
+  std::string connection;
+  size_t pos = eol;
+  while(pos != std::string::npos && pos < hdr.size()) {
+    pos += 2;
+    size_t next = hdr.find("\r\n", pos);
+    std::string line = hdr.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+    size_t colon = line.find(':');
+    if(colon != std::string::npos) {
+      std::string name = toLower(trimStr(line.substr(0, colon)));
+      std::string value = trimStr(line.substr(colon + 1));
+      if(name == "cookie") req.cookie = req.cookie.empty() ? value : req.cookie + "; " + value;
+      else if(name == "user-agent" || name == "user agent") req.useragent = value;  // Write sends "User Agent"
+      else if(name == "upgrade") req.upgrade = toLower(value);
+      else if(name == "connection") connection = toLower(value);
+      else if(name == "content-length") {
+        if(value.empty() || value.find_first_not_of("0123456789") != std::string::npos) return false;
+        req.contentLength = atoll(value.c_str());
+      }
+      else if(name == "transfer-encoding") req.chunked = true;  // not supported
+      else if(name == "expect") req.expect100 = toLower(value) == "100-continue";
+      else if(name == "x-remote-user") req.proxyUser = value;
+      else if(name == "x-real-ip") req.realIP = value;
+      else if(name == "x-forwarded-for") req.forwardedFor = req.forwardedFor.empty() ? value : req.forwardedFor + "," + value;
+    }
+    pos = next;
+  }
+  if(connection.find("close") != std::string::npos) req.keepAlive = false;
+  else if(connection.find("keep-alive") != std::string::npos) req.keepAlive = true;
+  else req.keepAlive = http11;
+  return true;
+}
+
+// HTTP/1.1 w/ keep-alive; requests are processed in order (pipelining), so if response to poll request is
+//  deferred, subsequent requests wait
 void SWBServer::processHTTP(SWBConn* c)
 {
-  size_t hdrend = c->inbuf.find("\r\n\r\n");
-  if(hdrend == std::string::npos) {
-    if(c->inbuf.size() > MAX_HTTP_HEADER) {
-      queue(c, "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-      closeConn(c, true);
-    }
-    return;
-  }
-  std::string hdr = c->inbuf.substr(0, hdrend);
-  c->inbuf.erase(0, hdrend + 4);
-  // request line
-  size_t eol = hdr.find("\r\n");
-  std::string reqline = hdr.substr(0, eol);
-  std::vector<std::string> parts = splitStr<std::vector>(reqline.c_str(), ' ', true);
-  int status = 400;
-  std::string body;
-  std::string extraHeaders;
-  if(parts.size() == 3 && parts[2].compare(0, 5, "HTTP/") == 0) {
-    // headers
-    std::string cookie, useragent, upgrade, proxyUser, realIP, forwardedFor;
-    size_t pos = eol;
-    while(pos != std::string::npos && pos < hdr.size()) {
-      pos += 2;
-      size_t next = hdr.find("\r\n", pos);
-      std::string line = hdr.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
-      size_t colon = line.find(':');
-      if(colon != std::string::npos) {
-        std::string name = toLower(trimStr(line.substr(0, colon)));
-        std::string value = trimStr(line.substr(colon + 1));
-        if(name == "cookie") cookie = cookie.empty() ? value : cookie + "; " + value;
-        else if(name == "user-agent" || name == "user agent") useragent = value;  // Write sends "User Agent"
-        else if(name == "upgrade") upgrade = toLower(value);
-        else if(name == "x-remote-user") proxyUser = value;
-        else if(name == "x-real-ip") realIP = value;
-        else if(name == "x-forwarded-for") forwardedFor = forwardedFor.empty() ? value : forwardedFor + "," + value;
-      }
-      pos = next;
-    }
-    if(opts.trustProxy) {
-      // last X-Forwarded-For entry is the one added by our proxy (earlier entries come from client)
-      size_t comma = forwardedFor.rfind(',');
-      std::string fwd = trimStr(comma == std::string::npos ? forwardedFor : forwardedFor.substr(comma + 1));
-      if(!realIP.empty()) c->remote = realIP;
-      else if(!fwd.empty()) c->remote = fwd;
-    }
-    else
-      proxyUser.clear();
-    c->proxyUser = proxyUser;
-    // GET /v1/swb w/ "Upgrade: swb" switches connection to whiteboard relay protocol, allowing everything to
-    //  go through a single port (and thus through a reverse proxy for TLS and auth)
-    QueryArgs args;
-    if(parseTarget(parts[1], args) == "/v1/swb") {
-      bool swbUpgrade = false;
-      for(const std::string& proto : splitStr<std::vector>(upgrade.c_str(), ',', true))
-        swbUpgrade = swbUpgrade || trimStr(proto) == "swb";
-      if(parts[0] == "GET" && swbUpgrade) {
-        log(2, "%s - \"%s\" 101 - \"%s\"", c->remote.c_str(), reqline.c_str(), useragent.c_str());
-        queue(c, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: swb\r\nConnection: Upgrade\r\n\r\n");
-        c->kind = CONN_SWB;
-        unet_set_flags(c->fd, UNET_NOBLOCK | UNET_NODELAY);
-        // client may send relay commands immediately after request w/o waiting for 101
-        if(!c->inbuf.empty())
-          processSWB(c);
+  while(c->kind == CONN_HTTP && !c->closing && !c->dead && !c->pollWait) {
+    if(!c->req) {
+      size_t hdrend = c->inbuf.find("\r\n\r\n");
+      if(hdrend == std::string::npos) {
+        if(c->inbuf.size() > MAX_HTTP_HEADER)
+          sendHTTP(c, 431, "", "", false);
         return;
       }
-      status = 426;
-      extraHeaders = "Upgrade: swb\r\n";
-      log(2, "%s - \"%s\" %d - \"%s\"", c->remote.c_str(), reqline.c_str(), status, useragent.c_str());
+      std::unique_ptr<HTTPRequest> req(new HTTPRequest);
+      bool ok = parseHTTPHeader(c->inbuf.substr(0, hdrend), *req);
+      c->inbuf.erase(0, hdrend + 4);
+      if(!ok) {
+        log(1, "%s - malformed request", c->remote.c_str());
+        sendHTTP(c, 400, "", "", false);
+        return;
+      }
+      if(opts.trustProxy) {
+        // last X-Forwarded-For entry is the one added by our proxy (earlier entries come from client)
+        size_t comma = req->forwardedFor.rfind(',');
+        std::string fwd = trimStr(comma == std::string::npos ? req->forwardedFor : req->forwardedFor.substr(comma + 1));
+        if(!req->realIP.empty()) c->remote = req->realIP;
+        else if(!fwd.empty()) c->remote = fwd;
+      }
+      else
+        req->proxyUser.clear();
+      c->proxyUser = req->proxyUser;
+      if(req->chunked || req->contentLength < 0 || size_t(req->contentLength) > opts.maxDataLen) {
+        log(1, "%s - \"%s\" - %s", c->remote.c_str(), req->reqline.c_str(),
+            req->chunked ? "chunked request body not supported" : "request body too large");
+        sendHTTP(c, req->chunked ? 411 : 413, "", "", false);
+        return;
+      }
+      if(req->expect100 && c->inbuf.size() < size_t(req->contentLength))
+        queue(c, "HTTP/1.1 100 Continue\r\n\r\n");
+      c->req = std::move(req);
     }
-    else {
-      std::string setCookie;
-      body = handleHTTP(parts[0], parts[1], cookie, c->remote, proxyUser, &status, &setCookie);
-      if(!setCookie.empty())
-        extraHeaders = "Set-Cookie: " + setCookie + "\r\n";
-      log(2, "%s - \"%s\" %d - \"%s\"", c->remote.c_str(), reqline.c_str(), status, useragent.c_str());
-    }
+    size_t len = size_t(c->req->contentLength);
+    if(c->inbuf.size() < len)
+      return;
+    std::unique_ptr<HTTPRequest> req = std::move(c->req);
+    req->body = c->inbuf.substr(0, len);
+    c->inbuf.erase(0, len);
+    handleRequest(c, *req);
   }
+}
+
+void SWBServer::handleRequest(SWBConn* c, HTTPRequest& req)
+{
+  if(req.path == "/v1/swb") {
+    // GET /v1/swb w/ "Upgrade: swb" switches connection to whiteboard relay protocol
+    bool swbUpgrade = false;
+    for(const std::string& proto : splitStr<std::vector>(req.upgrade.c_str(), ',', true))
+      swbUpgrade = swbUpgrade || trimStr(proto) == "swb";
+    if(req.method == "GET" && swbUpgrade) {
+      log(2, "%s - \"%s\" 101 - \"%s\"", c->remote.c_str(), req.reqline.c_str(), req.useragent.c_str());
+      queue(c, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: swb\r\nConnection: Upgrade\r\n\r\n");
+      c->kind = CONN_SWB;
+      unet_set_flags(c->fd, UNET_NOBLOCK | UNET_NODELAY);
+      // client may send relay commands immediately after request w/o waiting for 101
+      if(!c->inbuf.empty())
+        processSWB(c);
+      return;
+    }
+    log(2, "%s - \"%s\" 426 - \"%s\"", c->remote.c_str(), req.reqline.c_str(), req.useragent.c_str());
+    sendHTTP(c, 426, "", "Upgrade: swb\r\n", false);
+    return;
+  }
+  if(req.path.compare(0, 8, "/v1/swb/") == 0) {
+    handleRelayHTTP(c, req);
+    return;
+  }
+  int status = 400;
+  std::string setCookie;
+  std::string body = handleHTTP(req.method, req.target, req.cookie, c->remote, req.proxyUser, &status, &setCookie);
+  log(2, "%s - \"%s\" %d - \"%s\"", c->remote.c_str(), req.reqline.c_str(), status, req.useragent.c_str());
+  sendHTTP(c, status, body, setCookie.empty() ? "" : "Set-Cookie: " + setCookie + "\r\n", req.keepAlive);
+}
+
+static std::string httpHeader(int status, size_t contentLength, const char* contentType, bool keepAlive)
+{
   static const std::map<int, const char*> reasons = {{200, "OK"}, {400, "Bad Request"}, {401, "Unauthorized"},
-      {403, "Forbidden"}, {404, "Not Found"}, {405, "Method Not Allowed"}, {408, "Request Timeout"}, {426, "Upgrade Required"}};
+      {403, "Forbidden"}, {404, "Not Found"}, {405, "Method Not Allowed"}, {408, "Request Timeout"},
+      {411, "Length Required"}, {413, "Payload Too Large"}, {426, "Upgrade Required"},
+      {431, "Request Header Fields Too Large"}};
   auto reason = reasons.find(status);
-  std::string resp = fstring("HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n",
-      status, reason != reasons.end() ? reason->second : "Error", int(body.size()));
-  resp.append(extraHeaders).append("\r\n").append(body);
-  queue(c, std::move(resp));
-  closeConn(c, true);
+  return fstring("HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nCache-Control: no-store\r\n"
+      "Connection: %s\r\n", status, reason != reasons.end() ? reason->second : "Error", contentType,
+      int(contentLength), keepAlive ? "keep-alive" : "close");
+}
+
+void SWBServer::sendHTTP(SWBConn* c, int status, const std::string& body, const std::string& extraHeaders, bool keepAlive)
+{
+  queue(c, httpHeader(status, body.size(), "text/plain", keepAlive) + extraHeaders + "\r\n" + body);
+  if(!keepAlive)
+    closeConn(c, true);
+}
+
+// HTTP relay - same semantics as raw relay, but w/ plain HTTP requests so clients can use platform HTTP(S) stack:
+//  POST /v1/swb/start?document=&user=&token=&uuid=  - join whiteboard; returns session id as body
+//  GET /v1/swb/poll?id=&offset=N  - returns history from offset N (i.e. client's total bytes received), waiting up
+//   to pollTimeout for new data if none (returning empty body on timeout)
+//  POST /v1/swb/send?id=&seq=K  - body (one or more complete messages) is appended to history and broadcast;
+//   requests w/ seq <= last seq are ignored, so failed requests can be retried
+//  POST /v1/swb/end?id=  - leave whiteboard
+// If access is denied or client is kicked (same user connecting elsewhere), status is 403 w/ <accessdenied> message
+//  as body; status 404 means session not found (e.g. expired) - client should start a new session
+void SWBServer::handleRelayHTTP(SWBConn* c, HTTPRequest& req)
+{
+  std::string cmd = req.path.substr(8);
+  auto reply = [&](int status, const std::string& body, int loglevel) {
+    log(loglevel, "%s - \"%s %s\" %d", c->remote.c_str(), req.method.c_str(), req.path.c_str(), status);
+    sendHTTP(c, status, body, "", req.keepAlive);
+  };
+  if(cmd == "start") {
+    if(req.method != "POST") return reply(405, "", 1);
+    std::string user = argStr(req.args, "user");
+    std::string denied;
+    Whiteboard* wb = checkStart(argStr(req.args, "document"), user, argStr(req.args, "token"), req.proxyUser,
+        c->remote, &denied);
+    if(!wb) return reply(403, denied, 1);
+    std::unique_ptr<SWBPollClient> pc(new SWBPollClient);
+    do { pc->id = randomToken(); } while(pollClients.count(pc->id));
+    pc->user = user;
+    pc->remote = c->remote;
+    pc->wb = wb;
+    pc->lastSeen = Clock::now();
+    SWBPollClient* p = pc.get();
+    pollClients[pc->id] = std::move(pc);
+    wb->pollers.push_back(p);
+    wb->deletePending = false;
+    kickUser(wb, user, NULL, p);
+    log(2, "%s connected (HTTP) to %s as %s", c->remote.c_str(), wb->name.c_str(), user.c_str());
+    broadcast(wb, std::make_shared<const std::string>(
+        "<undo><connect name='" + user + "' uuid='" + argStr(req.args, "uuid", "undefined") + "'/></undo>\n"));
+    return reply(200, p->id, 3);
+  }
+
+  auto it = pollClients.find(argStr(req.args, "id"));
+  if(it == pollClients.end()) return reply(404, "", 1);
+  SWBPollClient* pc = it->second.get();
+  if(!req.proxyUser.empty() && req.proxyUser != pc->user) return reply(403, "", 1);
+  pc->lastSeen = Clock::now();
+  if(!pc->wb) {
+    // kicked
+    std::string msg = pc->deniedMsg;
+    removePollClient(pc);
+    return reply(403, msg, 2);
+  }
+  if(cmd == "poll") {
+    if(req.method != "GET") return reply(405, "", 1);
+    long long offset = atoll(argStr(req.args, "offset", "0").c_str());
+    if(offset < 0 || size_t(offset) > pc->wb->histSize) return reply(400, "invalid offset", 1);
+    if(pc->poll)
+      respondPoll(pc);  // previous poll (client must have given up on it) - answer w/ whatever is available
+    log(3, "%s - poll offset %lld", c->remote.c_str(), offset);
+    pc->poll = c;
+    pc->pollOffset = size_t(offset);
+    pc->pollDeadline = Clock::now() + std::chrono::milliseconds(int64_t(opts.pollTimeout*1000));
+    c->pollWait = pc;
+    c->pollKeepAlive = req.keepAlive;
+    if(pc->pollOffset < pc->wb->histSize)
+      respondPoll(pc);
+    return;
+  }
+  if(cmd == "send") {
+    if(req.method != "POST") return reply(405, "", 1);
+    const std::string* seqarg = getArg(req.args, "seq");
+    long long seq = seqarg ? atoll(seqarg->c_str()) : 0;
+    if(seqarg && seq <= pc->lastSeq) return reply(200, "", 2);  // duplicate
+    if(seqarg) pc->lastSeq = seq;
+    log(3, "rcvd %d bytes of data from %s (HTTP)", int(req.body.size()), c->remote.c_str());
+    if(opts.dump && opts.logLevel >= 3)
+      log(3, "rcvd from %s: %s", c->remote.c_str(), req.body.c_str());
+    if(!req.body.empty())
+      broadcast(pc->wb, std::make_shared<const std::string>(std::move(req.body)));
+    return reply(200, "", 3);
+  }
+  if(cmd == "end") {
+    if(req.method != "POST") return reply(405, "", 1);
+    log(2, "%s disconnected (HTTP end)", c->remote.c_str());
+    removePollClient(pc);
+    return reply(200, "", 3);
+  }
+  reply(404, "", 1);
+}
+
+// answer pending poll w/ history from poll offset (empty if none, e.g. on timeout), or deniedMsg if kicked
+void SWBServer::respondPoll(SWBPollClient* pc)
+{
+  SWBConn* c = pc->poll;
+  if(!c) return;
+  pc->poll = NULL;
+  pc->lastSeen = Clock::now();
+  c->pollWait = NULL;
+  bool keepAlive = c->pollKeepAlive;
+  if(!pc->wb) {
+    sendHTTP(c, 403, pc->deniedMsg, "", keepAlive);
+  }
+  else {
+    size_t from = pc->pollOffset;
+    size_t to = std::min(pc->wb->histSize, from + MAX_POLL_BYTES);
+    queue(c, httpHeader(200, to - from, "application/octet-stream", keepAlive) + "\r\n");
+    queueHistory(c, pc->wb, from, to);
+    if(!keepAlive)
+      closeConn(c, true);
+  }
+  if(keepAlive && !c->inbuf.empty())
+    c->resumeInput = true;
+}
+
+// remove HTTP relay client, leaving whiteboard if necessary
+void SWBServer::removePollClient(SWBPollClient* pc)
+{
+  if(pc->poll) {
+    pc->poll->pollWait = NULL;
+    closeConn(pc->poll, false);  // pending poll can't be answered properly
+    pc->poll = NULL;
+  }
+  Whiteboard* wb = pc->wb;
+  if(wb) {
+    pc->wb = NULL;
+    wb->pollers.erase(std::find(wb->pollers.begin(), wb->pollers.end(), pc));
+    memberLeft(wb, pc->user);
+  }
+  pollClients.erase(pc->id);  // deletes pc
 }
 
 // returns response body; for successful auth, sets setCookie to "session=<token>"
@@ -793,9 +1084,10 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
     }
     Whiteboard* wb = it->second.get();
     *status = 200;
-    // relay='upgrade' tells client to use GET /v1/swb w/ Upgrade on this port instead of connecting to port + 1
+    // relay='http upgrade' tells client it can use HTTP relay or GET /v1/swb w/ Upgrade on this port instead of
+    //  connecting to port + 1
     return "<swb" + wb->attribs + " user='" + xmlEscape(user) + "' token='" + md5hex(user + wb->token)
-        + "' relay='upgrade'/>";
+        + "' relay='http upgrade'/>";
   }
   *status = 404;
   return "";
@@ -806,7 +1098,7 @@ void SWBServer::doTimers()
   auto now = Clock::now();
   for(auto it = whiteboards.begin(); it != whiteboards.end();) {
     Whiteboard* wb = it->second.get();
-    if(wb->deletePending && wb->clients.empty() && now >= wb->deleteAt) {
+    if(wb->deletePending && wb->clients.empty() && wb->pollers.empty() && now >= wb->deleteAt) {
       log(2, "deleting whiteboard: %s", wb->name.c_str());
       it = whiteboards.erase(it);
     }
@@ -821,8 +1113,24 @@ void SWBServer::doTimers()
       log(1, "%s: send timeout w/ %d bytes queued; disconnecting", c->remote.c_str(), int(c->outBytes));
       closeConn(c.get(), false);
     }
+    else if(c->kind == CONN_HTTP && !c->closing && !c->pollWait && c->outq.empty()
+        && secsSince(c->lastActivity) > HTTP_IDLE_SECS)
+      closeConn(c.get(), false);  // idle keep-alive connection (or incomplete request)
   }
-  // expired sessions; HTTP connections that never send a complete request
+  // HTTP relay: answer polls w/ no new data before timeout; disconnect clients that stop polling
+  std::vector<SWBPollClient*> expired;
+  for(auto& kv : pollClients) {
+    SWBPollClient* pc = kv.second.get();
+    if(pc->poll && now >= pc->pollDeadline)
+      respondPoll(pc);
+    else if(!pc->poll && secsSince(pc->lastSeen) > opts.pollClientTimeout)
+      expired.push_back(pc);
+  }
+  for(SWBPollClient* pc : expired) {
+    log(pc->wb ? 1 : 3, "%s (HTTP) timed out", pc->remote.c_str());
+    removePollClient(pc);
+  }
+  // expired sessions
   if(secsSince(lastSweep) > 30) {
     lastSweep = now;
     for(auto it = sessions.begin(); it != sessions.end();) {
@@ -839,10 +1147,12 @@ std::string SWBServer::debugInfo()
     Whiteboard* wb = kv.second.get();
     std::vector<std::string> names;
     for(SWBConn* c : wb->clients) names.push_back(c->user + "@" + c->remote);
+    for(SWBPollClient* pc : wb->pollers) names.push_back(pc->user + "@" + pc->remote + " (HTTP)");
     s += fstring("  %s: %d bytes history (%d chunks), clients: %s%s\n", wb->name.c_str(), int(wb->histSize),
         int(wb->history.size()), joinStr(names, ", ").c_str(), wb->deletePending ? " (delete pending)" : "");
   }
-  s += fstring("sessions: %d\nconnections: %d\n", int(sessions.size()), int(conns.size()));
+  s += fstring("sessions: %d\nHTTP relay clients: %d\nconnections: %d\n", int(sessions.size()),
+      int(pollClients.size()), int(conns.size()));
   for(auto& c : conns)
     s += fstring("  %s %s: %d bytes queued\n", c->kind == CONN_SWB ? "SWB" : "HTTP", c->remote.c_str(), int(c->outBytes));
   return s;
