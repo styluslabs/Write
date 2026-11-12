@@ -6,6 +6,7 @@
 #include "basics.h"
 #include "application.h"
 #include "scribblepen.h"
+#include "ugui/platforms/platformhttp.h"
 #if PLATFORM_ANDROID
 #include "android/androidhelper.h"
 #elif PLATFORM_IOS
@@ -194,6 +195,8 @@ public:
   static void getScreenPageDims(int* w, int* h);
   static bool openURL(const char* url);
   const std::string& userAgent() const { return httpUserAgent; }
+  // shared HTTP(S) client (platform backend if available, otherwise plain HTTP)
+  HttpClient* httpClient();
 #if PLATFORM_ANDROID
   static bool hasAndroidPermission();
   static bool requestAndroidPermission();
@@ -251,14 +254,15 @@ private:
 #endif
   // sync
   bool syncSignIn(const Url& baseurl);
-  std::string syncAPICall(const Url& baseurl, const std::string& route);
-  bool doSharedDoc(std::string host, std::string reply, bool master);
+  HttpResponse syncAPICall(const Url& baseurl, const std::string& route);
+  bool doSharedDoc(std::string host, const HttpResponse& reply, bool master);
 
   Toolbar* notifyBar = NULL;
   TextBox* notifyText = NULL;
   Timer* notifyTimer = NULL;
   Timer* autoSaveTimer = NULL;
   std::string syncSession;  // session cookie
+  std::unique_ptr<HttpClient> m_httpClient;
 
   static const int volUpActions[];
   static const int volDnActions[];

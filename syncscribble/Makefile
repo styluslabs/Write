@@ -42,7 +42,8 @@ SOURCES += \
   ../ugui/svggui.cpp \
   ../ugui/widgets.cpp \
   ../ugui/textedit.cpp \
-  ../ugui/colorwidgets.cpp
+  ../ugui/colorwidgets.cpp \
+  ../ugui/platforms/http_unet.cpp
 
 SOURCES += \
   ../ulib/geom.cpp \
@@ -247,9 +248,9 @@ include Makefile.wasm
 else
 
 SOURCES += ../nanovgXC/glad/glad.c
-# HTTP(S) client: libcurl (loaded at runtime, so not a hard dependency) w/ plain HTTP fallback
-SOURCES += ../ugui/platforms/http_curl.cpp ../ugui/platforms/http_unet.cpp
-DEFS += HTTP_CURL_DLOPEN
+# HTTP(S) client: libcurl (loaded at runtime, so not a hard dependency); http_unet.cpp (plain HTTP) is fallback
+SOURCES += ../ugui/platforms/http_curl.cpp
+DEFS += HTTP_CURL_DLOPEN PLATFORM_HTTP_BACKEND
 # platform layer (provides main()) - only linked into Write, not WriteTest
 MAIN_SOURCES = ../ugui/platforms/linuxmain.cpp
 # `make test` builds and runs WriteTest, which runs tests using a headless platform layer

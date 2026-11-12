@@ -2,6 +2,8 @@
 #include <time.h>
 
 #include "scribbleapp.h"
+#include <mutex>
+#include <condition_variable>
 #include "application.h"
 #include "basics.h"
 #include "mainwindow.h"
@@ -2484,14 +2486,12 @@ bool ScribbleApp::openSharedDoc(std::string sharename)
   return syncSignIn(url) && doSharedDoc(url.host, syncAPICall(url, "/v1/openswb?name=" + url.path), false);
 }
 
-bool ScribbleApp::doSharedDoc(std::string host, std::string reply, bool master)
+bool ScribbleApp::doSharedDoc(std::string host, const HttpResponse& reply, bool master)
 {
-  size_t contentpos = reply.find("\r\n\r\n");
-  if(!StringRef(reply).startsWith("HTTP/1.1 200") || contentpos == std::string::npos)
+  if(reply.status != 200)
     return false;
-  contentpos += 4;
   pugi::xml_document doc;
-  doc.load_buffer(reply.data() + contentpos, reply.size() - contentpos);
+  doc.load_buffer(reply.body.data(), reply.body.size());
   pugi::xml_node swb = doc.child("swb");
   const char* name = swb.attribute("name").as_string(NULL);
   const char* token = swb.attribute("token").as_string(NULL);
@@ -2549,28 +2549,23 @@ bool ScribbleApp::syncSignIn(const Url& baseurl)
       savepw = saveuser && dialog.savePassword->isChecked();
     }
 
-    // we'll let QNetworkAccessManager handle the session cookie returned by /auth
     std::string ts = fstring("%lld", mSecSinceEpoch());
     std::string sig = MD5hex((pw + ts).c_str(), 0, md5Temp);
-    std::string replystr = syncAPICall(baseurl, "/v1/auth?user=" + user + "&timestamp=" + ts + "&signature=" + sig);
-    StringRef reply(replystr);
-    if(reply.startsWith("HTTP/1.1 200")) {
+    HttpResponse reply = syncAPICall(baseurl, "/v1/auth?user=" + user + "&timestamp=" + ts + "&signature=" + sig);
+    if(reply.status == 200) {
       if(savepw && saveuser)
         cfg->set("syncPass", pw.data());
-      const char* setCookieStr = "Set-Cookie: session=";
-      int c0 = reply.find(setCookieStr);
-      if(c0 > 0) {
-        c0 += strlen(setCookieStr);
-        int c1 = reply.findFirstOf("\r;", c0);
-        syncSession = reply.substr(c0, c1 - c0).toString();
-      }
+      // session cookie is sent w/ subsequent API calls
+      std::string cookie = reply.header("Set-Cookie");
+      if(cookie.compare(0, 8, "session=") == 0)
+        syncSession = cookie.substr(8, cookie.find(';') == std::string::npos ? std::string::npos : cookie.find(';') - 8);
       return true;
     }
-    if(reply.isEmpty())
+    if(reply.status == 0)
       msg = _("Could not connect to ") + baseurl.host;
     else
-      msg = StringRef(reply).startsWith("HTTP/1.1 401") ?
-          std::string(_("Incorrect username or password.")) : (_("HTTP Error: ") + replystr.substr(9, 3));
+      msg = reply.status == 401 ? std::string(_("Incorrect username or password."))
+          : (_("HTTP Error: ") + std::to_string(reply.status));
     // try again
     if(saveuser)
       cfg->set("syncPass", "");
@@ -2604,35 +2599,40 @@ bool ScribbleApp::syncSignIn(const Url& baseurl)
   return reply;
 }*/
 
+HttpClient* ScribbleApp::httpClient()
+{
+  if(!m_httpClient) {
+    HttpClient::Options opts;
+    opts.userAgent = httpUserAgent;
+#ifdef PLATFORM_HTTP_BACKEND
+    m_httpClient = HttpClient::create(opts);
+#endif
+    if(!m_httpClient)
+      m_httpClient = createUnetHttpClient(opts);  // plain HTTP only
+  }
+  return m_httpClient.get();
+}
+
 // For sign-in and create/open SWB, I think blocking API call is actually preferrable (and easier)
-std::string ScribbleApp::syncAPICall(const Url& baseurl, const std::string& route)
+HttpResponse ScribbleApp::syncAPICall(const Url& baseurl, const std::string& route)
 {
   // TODO: show "Please Wait..." message box
-  constexpr int RECV_BUFF_LEN = 4096;
-  char recvBuff[RECV_BUFF_LEN];
-  std::string reply;
-  int port;
-  std::string host = ScribbleSync::splitHostPort(baseurl.host, &port);
-  int sock = unet_socket(UNET_TCP, UNET_CONNECT, UNET_NOBLOCK, host.c_str(), std::to_string(port).c_str());
-  if(sock != -1) {
-    if(unet_select(-1, sock, 4) > 0) {
-      std::string req = fstring("GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nUser Agent: %s\r\n",
-          route.c_str(), baseurl.host.c_str(), httpUserAgent.c_str());
-      if(!syncSession.empty())
-        req.append("Cookie: session=").append(syncSession).append("\r\n");
-      req.append("\r\n");
-      unet_send(sock, req.data(), req.size());
-      while(unet_select(sock, -1, 4) > 0) {
-        int n = unet_recv(sock, recvBuff, RECV_BUFF_LEN);
-        if(n <= 0)
-          break;
-        reply.append(recvBuff, n);
-      }
-    }
-    unet_shutdown(sock, UNET_SHUT_RDWR);
-    unet_close(sock);
-  }
-  return reply;
+  struct Wait { std::mutex mutex; std::condition_variable cond; bool done = false; HttpResponse resp; };
+  auto w = std::make_shared<Wait>();
+  HttpRequest req(ScribbleSync::httpBaseUrl(baseurl.host) + route);
+  if(!syncSession.empty())
+    req.headers = "Cookie: session=" + syncSession;
+  req.timeout = 15;
+  httpClient()->request(std::move(req), [w](HttpResponse&& resp){
+    std::lock_guard<std::mutex> lock(w->mutex);
+    w->resp = std::move(resp);
+    w->done = true;
+    w->cond.notify_all();
+  });
+  // request timeout ensures callback is called
+  std::unique_lock<std::mutex> lock(w->mutex);
+  w->cond.wait(lock, [&w](){ return w->done; });
+  return std::move(w->resp);
 }
 
 // toggle sending edits

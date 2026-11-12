@@ -116,7 +116,7 @@ struct HTTPRequest
 {
   std::string reqline, method, target, path;
   QueryArgs args;
-  std::string cookie, useragent, upgrade, proxyUser, realIP, forwardedFor;
+  std::string cookie, useragent, proxyUser, realIP, forwardedFor;
   bool keepAlive = false;
   bool expect100 = false;
   bool chunked = false;
@@ -715,9 +715,6 @@ bool SWBServer::handleSWBCommand(SWBConn* c, const std::string& cmdstr)
     c->expectData = size_t(len);
     c->dataBuf.reserve(size_t(len));
   }
-  else if(command == "/ping") {
-    // keepalive (no reply - client counts all bytes received as whiteboard history)
-  }
   else if(command == "/end") {
     log(2, "%s disconnected (/end)", c->remote.c_str());
     closeConn(c, true);
@@ -755,7 +752,6 @@ static bool parseHTTPHeader(const std::string& hdr, HTTPRequest& req)
       std::string value = trimStr(line.substr(colon + 1));
       if(name == "cookie") req.cookie = req.cookie.empty() ? value : req.cookie + "; " + value;
       else if(name == "user-agent" || name == "user agent") req.useragent = value;  // Write sends "User Agent"
-      else if(name == "upgrade") req.upgrade = toLower(value);
       else if(name == "connection") connection = toLower(value);
       else if(name == "content-length") {
         if(value.empty() || value.find_first_not_of("0123456789") != std::string::npos) return false;
@@ -827,25 +823,6 @@ void SWBServer::processHTTP(SWBConn* c)
 
 void SWBServer::handleRequest(SWBConn* c, HTTPRequest& req)
 {
-  if(req.path == "/v1/swb") {
-    // GET /v1/swb w/ "Upgrade: swb" switches connection to whiteboard relay protocol
-    bool swbUpgrade = false;
-    for(const std::string& proto : splitStr<std::vector>(req.upgrade.c_str(), ',', true))
-      swbUpgrade = swbUpgrade || trimStr(proto) == "swb";
-    if(req.method == "GET" && swbUpgrade) {
-      log(2, "%s - \"%s\" 101 - \"%s\"", c->remote.c_str(), req.reqline.c_str(), req.useragent.c_str());
-      queue(c, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: swb\r\nConnection: Upgrade\r\n\r\n");
-      c->kind = CONN_SWB;
-      unet_set_flags(c->fd, UNET_NOBLOCK | UNET_NODELAY);
-      // client may send relay commands immediately after request w/o waiting for 101
-      if(!c->inbuf.empty())
-        processSWB(c);
-      return;
-    }
-    log(2, "%s - \"%s\" 426 - \"%s\"", c->remote.c_str(), req.reqline.c_str(), req.useragent.c_str());
-    sendHTTP(c, 426, "", "Upgrade: swb\r\n", false);
-    return;
-  }
   if(req.path.compare(0, 8, "/v1/swb/") == 0) {
     handleRelayHTTP(c, req);
     return;
@@ -861,8 +838,7 @@ static std::string httpHeader(int status, size_t contentLength, const char* cont
 {
   static const std::map<int, const char*> reasons = {{200, "OK"}, {400, "Bad Request"}, {401, "Unauthorized"},
       {403, "Forbidden"}, {404, "Not Found"}, {405, "Method Not Allowed"}, {408, "Request Timeout"},
-      {411, "Length Required"}, {413, "Payload Too Large"}, {426, "Upgrade Required"},
-      {431, "Request Header Fields Too Large"}};
+      {411, "Length Required"}, {413, "Payload Too Large"}, {431, "Request Header Fields Too Large"}};
   auto reason = reasons.find(status);
   return fstring("HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nCache-Control: no-store\r\n"
       "Connection: %s\r\n", status, reason != reasons.end() ? reason->second : "Error", contentType,
@@ -878,8 +854,8 @@ void SWBServer::sendHTTP(SWBConn* c, int status, const std::string& body, const 
 
 // HTTP relay - same semantics as raw relay, but w/ plain HTTP requests so clients can use platform HTTP(S) stack:
 //  POST /v1/swb/start?document=&user=&token=&uuid=  - join whiteboard; returns session id as body
-//  GET /v1/swb/poll?id=&offset=N  - returns history from offset N (i.e. client's total bytes received), waiting up
-//   to pollTimeout for new data if none (returning empty body on timeout)
+//  GET /v1/swb/poll?id=&offset=N[&wait=0]  - returns history from offset N (i.e. client's total bytes received),
+//   waiting up to pollTimeout for new data if none (returning empty body on timeout), unless wait=0
 //  POST /v1/swb/send?id=&seq=K  - body (one or more complete messages) is appended to history and broadcast;
 //   requests w/ seq <= last seq are ignored, so failed requests can be retried
 //  POST /v1/swb/end?id=  - leave whiteboard
@@ -939,7 +915,8 @@ void SWBServer::handleRelayHTTP(SWBConn* c, HTTPRequest& req)
     pc->pollDeadline = Clock::now() + std::chrono::milliseconds(int64_t(opts.pollTimeout*1000));
     c->pollWait = pc;
     c->pollKeepAlive = req.keepAlive;
-    if(pc->pollOffset < pc->wb->histSize)
+    // wait=0: respond immediately even if no data (client checking if session is still valid)
+    if(pc->pollOffset < pc->wb->histSize || argStr(req.args, "wait") == "0")
       respondPoll(pc);
     return;
   }
@@ -1084,10 +1061,9 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
     }
     Whiteboard* wb = it->second.get();
     *status = 200;
-    // relay='http upgrade' tells client it can use HTTP relay or GET /v1/swb w/ Upgrade on this port instead of
-    //  connecting to port + 1
+    // relay='http' tells client it can use HTTP relay on this port instead of raw relay on port + 1
     return "<swb" + wb->attribs + " user='" + xmlEscape(user) + "' token='" + md5hex(user + wb->token)
-        + "' relay='http upgrade'/>";
+        + "' relay='http'/>";
   }
   *status = 404;
   return "";

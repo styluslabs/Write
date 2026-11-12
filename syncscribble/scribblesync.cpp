@@ -45,19 +45,33 @@ void ScribbleSync::connectSync(const char* server, const pugi::xml_node& xml, bo
   enableTX = master || !rxonly;  // check for RX only (lecture) mode
   // sync view box enabled by default for lecture (rxonly) mode
   syncViewBox = rxonly ? (master ? SYNCVIEW_MASTER : SYNCVIEW_SLAVE) : SYNCVIEW_OFF;
-  // server advertises relay via HTTP Upgrade on API port (single port, can be behind reverse proxy)
+  // server advertises HTTP relay (on API port, so can be behind reverse proxy; uses platform HTTP stack)
   std::vector<std::string> relays = splitStr<std::vector>(xml.attribute("relay").as_string(), ' ', true);
-  relayUpgrade = std::find(relays.begin(), relays.end(), "upgrade") != relays.end();
-  pingTicks = 0;
+  httpRelay = std::find(relays.begin(), relays.end(), "http") != relays.end();
   // create fixed part of start URL; version is protocol version
   startURL = "/start?version=1&user=" + syncUser
       + "&document=" + docName + "&token=" + xml.attribute("token").as_string();
 
   if(sdlEventType == 0)
     sdlEventType = SDL_RegisterEvents(1);
-  netSem = new Semaphore;  //SDL_CreateSemaphore(0);
   syncState = SYNC_CONNECTING;
-  netThread = new std::thread(netThreadFn, (void*)this);  //SDL_CreateThread(netThreadFn, "ScribbleSync_netThread", (void*)this);
+  if(httpRelay) {
+    relayBase = httpBaseUrl(syncServer);
+    relayArgs = "document=" + docName + "&user=" + syncUser + "&token=" + xml.attribute("token").as_string();
+    relayId.clear();
+    httpQueue = std::make_shared<HttpQueue>();
+    SDL_Event& event = httpQueue->event;
+    memset(&event, 0, sizeof(event));
+    event.type = sdlEventType;
+    event.user.code = SOCKET_HTTP;
+    event.user.data1 = scribbleDoc;
+    event.user.data2 = this;
+    httpConnect();
+  }
+  else {
+    netSem = new Semaphore;  //SDL_CreateSemaphore(0);
+    netThread = new std::thread(netThreadFn, (void*)this);  //SDL_CreateThread(netThreadFn, "ScribbleSync_netThread", (void*)this);
+  }
   // timer for reconnect and viewbox
   ssyncTimer = ScribbleApp::gui->setTimer(1000, NULL, [this]() { doTimerEvent(); return 1000; });
 
@@ -94,6 +108,19 @@ std::string ScribbleSync::splitHostPort(const std::string& hostport, int* port)
   return host;
 }
 
+std::string ScribbleSync::httpBaseUrl(const std::string& server)
+{
+  std::string s = server;
+  while(!s.empty() && s.back() == '/') s.pop_back();
+  if(s.compare(0, 7, "http://") == 0 || s.compare(0, 8, "https://") == 0)
+    return s;
+  int port;
+  std::string host = splitHostPort(s, &port);
+  if(host.find(':') != std::string::npos)
+    host = "[" + host + "]";
+  return "http://" + host + ":" + std::to_string(port);
+}
+
 int ScribbleSync::netThreadFn(void* _self)
 {
   ScribbleSync* self = static_cast<ScribbleSync*>(_self);
@@ -104,14 +131,13 @@ int ScribbleSync::netThreadFn(void* _self)
 
   int apiport;
   std::string host = splitHostPort(self->syncServer, &apiport);
-  // old servers: relay on port + 1
-  std::string relayport = std::to_string(self->relayUpgrade ? apiport : apiport + 1);
+  // raw relay (old servers) is on port + 1
+  std::string relayport = std::to_string(apiport + 1);
   while(self->syncState != SYNC_OFF) {
     // don't want to block on recv in main thread; also, UNET_NOBLOCK required to make connect non-blocking
     self->socket = unet_socket(UNET_TCP, UNET_CONNECT, UNET_NOBLOCK, host.c_str(), relayport.c_str());
     // For a non-blocking socket, we need to use select to wait for writability to indicate connected!
-    if(self->socket != -1 && unet_select(-1, self->socket, 8) == UNET_RDY_WR  // wait 8 seconds for connect
-        && (!self->relayUpgrade || upgradeConnection(self->socket, self->syncServer, 8))) {
+    if(self->socket != -1 && unet_select(-1, self->socket, 8) == UNET_RDY_WR) {  // wait 8 seconds for connect
       event.user.code = SOCKET_CONNECTED;
       pushSyncEvent(&event);
       self->netSem->wait();  //SDL_SemWait(self->netSem);  // wait for main thread to see if we need to wait for both read and write
@@ -145,36 +171,6 @@ int ScribbleSync::netThreadFn(void* _self)
   return 0;
 }
 
-// send GET /v1/swb w/ Upgrade: swb and wait for 101 response; reads only the response header, so subsequent
-//  data received on socket is all relay data
-bool ScribbleSync::upgradeConnection(int sock, const std::string& hostport, double timeout)
-{
-  std::string req = "GET /v1/swb HTTP/1.1\r\nHost: " + hostport + "\r\nUpgrade: swb\r\nConnection: Upgrade\r\n"
-      "User-Agent: " + ScribbleApp::app->userAgent() + "\r\n\r\n";
-  size_t sent = 0;
-  Timestamp t0 = mSecSinceEpoch();
-  while(sent < req.size()) {
-    double dt = timeout - (mSecSinceEpoch() - t0)/1000;
-    if(dt <= 0 || unet_select(-1, sock, dt) != UNET_RDY_WR) return false;
-    int n = unet_send(sock, req.data() + sent, req.size() - sent);
-    if(n < 0) return false;
-    sent += n;
-  }
-  // read one byte at a time so we don't consume any data after the header (response header is small)
-  std::string resp;
-  while(resp.size() < 8192 && (resp.size() < 4 || resp.compare(resp.size() - 4, 4, "\r\n\r\n") != 0)) {
-    double dt = timeout - (mSecSinceEpoch() - t0)/1000;
-    char c;
-    if(dt <= 0 || unet_select(sock, -1, dt) <= 0 || unet_recv(sock, &c, 1) != 1) return false;
-    resp.push_back(c);
-  }
-  if(resp.compare(0, 12, "HTTP/1.1 101") != 0) {
-    SCRIBBLE_LOG("Whiteboard connection upgrade failed: %s\n", resp.substr(0, resp.find('\r')).c_str());
-    return false;
-  }
-  return true;
-}
-
 bool ScribbleSync::sdlEvent(SDL_Event* event)
 {
   if(event->type != sdlEventType)
@@ -190,6 +186,17 @@ bool ScribbleSync::sdlEvent(SDL_Event* event)
   else if(event->user.code == SOCKET_RECV) {
     onReceiveItem();
     netSem->post();  //SDL_SemPost(netSem);  // net thread can now select() again
+  }
+  else if(event->user.code == SOCKET_HTTP) {
+    std::deque<std::pair<HttpReqType, HttpResponse>> responses;
+    if(httpQueue) {
+      std::lock_guard<std::mutex> lock(httpQueue->mutex);
+      responses.swap(httpQueue->responses);
+    }
+    for(auto& r : responses) {
+      if(syncState == SYNC_OFF) break;
+      onHttpResponse(r.first, r.second);
+    }
   }
   else if(event->user.code == SOCKET_SEND) {
     if(pendingWrite) {
@@ -213,8 +220,32 @@ void ScribbleSync::disconnectSync()
     ScribbleApp::gui->removeTimer(ssyncTimer);
   ssyncTimer = NULL;
 
+  // like /end for raw relay, wait (briefly) for queued data to be sent
+  if(httpQueue && syncState != SYNC_OFF)
+    httpFinishSends(4.0);
   syncState = SYNC_OFF;
-  netSem->post();  //SDL_SemPost(netSem);
+  if(httpQueue) {
+    {
+      std::lock_guard<std::mutex> lock(httpQueue->mutex);
+      httpQueue->dead = true;
+      httpQueue->responses.clear();
+    }
+    HttpClient* client = ScribbleApp::app->httpClient();
+    if(startReq) client->cancel(startReq);
+    if(pollReq) client->cancel(pollReq);
+    // pending send is not cancelled so data isn't lost (unless server sees /end first)
+    if(!relayId.empty()) {
+      HttpRequest req(relayBase + "/v1/swb/end?id=" + relayId);
+      req.method = "POST";
+      req.timeout = 10;
+      client->request(std::move(req), [](HttpResponse&&){});
+    }
+    startReq = pollReq = sendReq = 0;
+    relayId.clear();
+    httpQueue.reset();
+  }
+  if(netSem)
+    netSem->post();  //SDL_SemPost(netSem);
   if(socket != -1) {
     double dt, timeout = 4.0, t0 = mSecSinceEpoch();
     const char* s = "/end\n";
@@ -270,21 +301,12 @@ void ScribbleSync::onSocketError()
 void ScribbleSync::doTimerEvent()
 {
   // reconnect - 5 ticks (== 5 sec) between attempts
-  if(syncState == SYNC_DISCONNECTED && timerCount++ % 5 == 0) {
-    syncState = SYNC_CONNECTING;
-    netSem->post();  //SDL_SemPost(netSem);
-  }
+  if(syncState == SYNC_DISCONNECTED && timerCount++ % 5 == 0)
+    reconnect();
+  if(sendRetryTicks > 0 && --sendRetryTicks == 0)
+    httpFlushSend();
   if(syncState != SYNC_CONNECTED)
     return;
-  // keepalive so reverse proxy doesn't close idle connection (nginx default timeout is 60 s); skip if data is
-  //  waiting to be sent; old servers don't support /ping, so only send when using upgrade
-  if(relayUpgrade && ++pingTicks >= 30 && !pendingWrite) {
-    pingTicks = 0;
-    const char* ping = "/ping\n";
-    int written = unet_send(socket, ping, strlen(ping));
-    if(written >= 0 && written < int(strlen(ping)))
-      pendingWrite.reset(new MemStream(ping + written, strlen(ping) - written));
-  }
   if(syncViewBox == SYNCVIEW_MASTER) {
     DocViewBox vb = scribbleDoc->activeArea->getViewBox();
     if(vb != lastViewBox)
@@ -341,10 +363,8 @@ void ScribbleSync::syncClearUndone()
 {
   if(syncState != SYNC_OFF && (sentPos > history->pos || rcvdPos > history->pos)) {
     blockingClearUndone = true;
-    if(syncState == SYNC_DISCONNECTED) {  // immediate reconnect attempt
-      syncState = SYNC_CONNECTING;
-      netSem->post();  //SDL_SemPost(netSem);
-    }
+    if(syncState == SYNC_DISCONNECTED)  // immediate reconnect attempt
+      reconnect();
     else
       sendHist();
     // reenter event loop
@@ -740,12 +760,19 @@ void ScribbleSync::processItem(pugi::xml_node& node)
 
 bool ScribbleSync::isSyncActive()
 {
-  return syncState == SYNC_CONNECTED && socket != -1;
+  return syncState == SYNC_CONNECTED && (httpRelay ? !relayId.empty() : socket != -1);
 }
 
 bool ScribbleSync::canSendHist()
 {
-  return isSyncActive() && sentPos != history->pos && enableTX && !pendingWrite;
+  // w/ HTTP relay, history is serialized immediately and queued if a send is in progress (as it would be for raw
+  //  relay, where pendingWrite should be rare)
+  return isSyncActive() && sentPos != history->pos && enableTX && (httpRelay || !pendingWrite);
+}
+
+bool ScribbleSync::syncPending()
+{
+  return (enableTX && sentPos != history->pos) || sendBusy() || rcvdPos != sentPos;
 }
 
 // send everything between sentPos and history->pos
@@ -834,6 +861,12 @@ void ScribbleSync::sendDataStr(MemStream& ss)
     ss = std::move(outstrm);
   }
 
+  if(httpRelay) {
+    // no framing needed - each message is complete
+    sendBuf.append(ss.data(), ss.size());
+    httpFlushSend();
+    return;
+  }
   std::string hdr = fstring("/data?length=%d\n", ss.size());
   if(pendingWrite) {
     // need to save and restore send position!
@@ -907,5 +940,206 @@ void ScribbleSync::updateStrokemap(UndoHistoryItem* item)
   else if(item->isA(UndoHistoryItem::PAGE_DELETED_ITEM)) {
     for(Element* s : static_cast<PageDeletedItem*>(item)->p->children())
       strokemap.erase(s->uuid);
+  }
+}
+
+// HTTP relay
+
+void ScribbleSync::reconnect()
+{
+  if(httpRelay)
+    httpConnect();
+  else {
+    syncState = SYNC_CONNECTING;
+    netSem->post();  //SDL_SemPost(netSem);
+  }
+}
+
+// wait (blocking) for pending send and any queued data to be sent
+void ScribbleSync::httpFinishSends(double timeout)
+{
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(int(timeout*1000));
+  for(;;) {
+    if(!sendReq) {
+      httpFlushSend();
+      if(!sendReq) return;  // nothing to send (or unable to send)
+    }
+    HttpResponse resp;
+    {
+      std::unique_lock<std::mutex> lock(httpQueue->mutex);
+      auto& rs = httpQueue->responses;
+      auto isSend = [](const std::pair<HttpReqType, HttpResponse>& r){ return r.first == HTTP_SEND; };
+      if(!httpQueue->cond.wait_until(lock, deadline, [&](){ return std::any_of(rs.begin(), rs.end(), isSend); }))
+        return;  // timeout
+      auto it = std::find_if(rs.begin(), rs.end(), isSend);
+      resp = std::move(it->second);
+      rs.erase(it);
+    }
+    sendReq = 0;
+    if(resp.status != 200) return;
+    sendInFlight.clear();
+  }
+}
+
+bool ScribbleSync::sendBusy() const
+{
+  return httpRelay ? (sendReq || !sendInFlight.empty() || !sendBuf.empty()) : bool(pendingWrite);
+}
+
+// start new session, or check if existing session is still valid after connection was interrupted
+void ScribbleSync::httpConnect()
+{
+  if(startReq || pollReq) return;
+  if(relayId.empty())
+    httpStart();
+  else
+    httpPoll(false);  // if successful, connection is restored
+}
+
+void ScribbleSync::httpRequest(HttpReqType type, HttpRequest req)
+{
+  std::shared_ptr<HttpQueue> q = httpQueue;
+  uint64_t id = ScribbleApp::app->httpClient()->request(std::move(req), [q, type](HttpResponse&& resp){
+    std::lock_guard<std::mutex> lock(q->mutex);
+    if(q->dead) return;
+    q->responses.emplace_back(type, std::move(resp));
+    q->cond.notify_all();
+    SDL_Event event = q->event;
+    event.common.timestamp = SDL_GetTicks();
+    SDL_PeepEvents(&event, 1, SDL_ADDEVENT, 0, 0);
+    PLATFORM_WakeEventLoop();
+  });
+  if(type == HTTP_START) startReq = id;
+  else if(type == HTTP_POLL) pollReq = id;
+  else if(type == HTTP_SEND) sendReq = id;
+}
+
+void ScribbleSync::httpStart()
+{
+  syncState = SYNC_CONNECTING;
+  // see onConnected() for uuid
+  connectUUID = UndoHistory::newUuid();
+  HttpRequest req(relayBase + fstring("/v1/swb/start?%s&uuid=%llu", relayArgs.c_str(), connectUUID));
+  req.method = "POST";
+  req.timeout = 20;
+  httpRequest(HTTP_START, std::move(req));
+}
+
+// if wait is false, server responds immediately even if no new data (used to check connection)
+void ScribbleSync::httpPoll(bool wait)
+{
+  // server holds poll for up to 25 s if no data
+  HttpRequest req(relayBase + fstring("/v1/swb/poll?id=%s&offset=%u%s", relayId.c_str(), bytesRcvd, wait ? "" : "&wait=0"));
+  req.timeout = wait ? 60 : 20;
+  httpRequest(HTTP_POLL, std::move(req));
+}
+
+// one send request at a time to preserve order; everything buffered is sent in one request
+void ScribbleSync::httpFlushSend()
+{
+  if(!httpRelay || sendReq || relayId.empty() || syncState == SYNC_DISCONNECTED || syncState == SYNC_OFF)
+    return;
+  if(sendInFlight.empty()) {
+    if(sendBuf.empty()) return;
+    sendInFlight.swap(sendBuf);
+    ++sendSeq;
+  }
+  // seq lets server ignore a request that is resent after failure but was actually received
+  HttpRequest req(relayBase + fstring("/v1/swb/send?id=%s&seq=%lld", relayId.c_str(), sendSeq),
+      "Content-Type: application/octet-stream", sendInFlight);
+  req.method = "POST";
+  req.timeout = 60;
+  httpRequest(HTTP_SEND, std::move(req));
+}
+
+void ScribbleSync::onHttpResponse(HttpReqType type, HttpResponse& resp)
+{
+  if(type == HTTP_START) startReq = 0;
+  else if(type == HTTP_POLL) pollReq = 0;
+  else if(type == HTTP_SEND) sendReq = 0;
+  if(resp.status != 200) {
+    onHttpError(type, resp);
+    return;
+  }
+  if(type == HTTP_START) {
+    relayId.assign(resp.body.begin(), resp.body.end());
+    sendSeq = 0;
+    sendBuf.clear();
+    sendInFlight.clear();
+    // see onConnected()
+    if(syncDoc)
+      startSession();
+    httpPoll(true);
+  }
+  else if(type == HTTP_POLL) {
+    if(syncState == SYNC_DISCONNECTED) {
+      // connection restored w/ same session, so nothing was missed
+      syncState = decltype(syncState)(savedState);
+      userMessage(_("Reconnected to whiteboard."), 0);
+      httpFlushSend();
+      sendHist();
+    }
+    if(!resp.body.empty()) {
+      recvBuff.reserve(recvBuff.buffsize + resp.body.size() + 1);
+      memcpy(recvBuff.enddata(), resp.body.data(), resp.body.size());
+      recvBuff.buffsize += resp.body.size();
+      bytesRcvd += resp.body.size();
+      // only process immediately if user isn't doing anything (to minimize lag and simplify some logic)
+      if(scribbleDoc->getActiveMode() == MODE_NONE || blockingClearUndone)
+        processRecvBuff();
+    }
+    if(syncState != SYNC_OFF && !relayId.empty())
+      httpPoll(true);
+  }
+  else if(type == HTTP_SEND) {
+    sendInFlight.clear();
+    httpFlushSend();
+    if(!sendBusy())
+      sendHist();  // history accumulated while send was in progress
+  }
+}
+
+void ScribbleSync::onHttpError(HttpReqType type, const HttpResponse& resp)
+{
+  if(resp.status == 403) {
+    // access denied or user connected from another location
+    std::string body(resp.body.begin(), resp.body.end());
+    SCRIBBLE_LOG("Whiteboard access denied: %s", body.c_str());
+    disconnectSync();
+    userMessage(body.find("another location") != std::string::npos ? _("Disconnected: user connected from another location.")
+        : _("Error connecting to whiteboard. Please try again."), 2);
+    return;
+  }
+  if(resp.status == 404 && type != HTTP_START) {
+    // session expired (e.g. disconnected for too long) - start new session; reconnect logic (see processItem())
+    //  resends everything after rcvdPos, so unsent data can be discarded
+    if(relayId.empty()) return;  // already handled
+    relayId.clear();
+    sendBuf.clear();
+    sendInFlight.clear();
+    if(syncState != SYNC_DISCONNECTED)
+      onDisconnected();
+    return;
+  }
+  if(resp.status >= 400 && resp.status < 500 && resp.status != 408 && resp.status != 429) {
+    // e.g. 400 for offset beyond history if server was restarted - retrying won't help
+    SCRIBBLE_LOG("Whiteboard request failed: %d\n", resp.status);
+    disconnectSync();
+    userMessage(_("Whiteboard session lost. Please try again."), 2);
+    return;
+  }
+  // network error, server error (incl. 502, 503 from proxy), etc.: retry w/ same session
+  SCRIBBLE_LOG("Whiteboard request failed: %d %s\n", resp.status, resp.error.c_str());
+  if(type == HTTP_SEND) {
+    sendRetryTicks = 2;
+    return;
+  }
+  if(syncState == SYNC_DISCONNECTED)
+    return;  // reconnect attempt failed - will try again
+  if(type == HTTP_START)
+    onSocketError();
+  else {
+    savedState = syncState;
+    onDisconnected();
   }
 }

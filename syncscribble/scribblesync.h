@@ -3,7 +3,11 @@
 
 #include <map>
 #include <thread>
+#include <deque>
+#include <mutex>
+#include <condition_variable>
 #include "ulib/threadutil.h"
+#include "ugui/platforms/platformhttp.h"
 #include "ugui/svggui_platform.h"
 #include "syncundo.h"
 #include "document.h"
@@ -21,12 +25,17 @@ public:
   ~ScribbleSync();
 
   static UUID_t strToUuid(const char* str);
-  // split "host[:port]" or "[ipv6]:port" - port is HTTP API port (default 7000); whiteboard relay uses port + 1
+  // split "host[:port]" or "[ipv6]:port" - port is HTTP API port (default 7000); raw whiteboard relay (for old
+  //  servers) uses port + 1
   static std::string splitHostPort(const std::string& hostport, int* port);
+  // base URL for HTTP API: "http://host:port" (port 7000 if not specified) unless server includes scheme
+  static std::string httpBaseUrl(const std::string& server);
 
   void connectSync(const char *server, const pugi::xml_node& xml, bool master);
   bool isSyncActive();
   bool canSendHist();
+  // true if any local history has not been sent or acknowledged (echoed) by server yet
+  bool syncPending();
   bool canUndo();
   void sendHist(bool force = false);  // public so that it can be called manually when automatic send is disabled
   void syncClearUndone();
@@ -71,9 +80,42 @@ private:
   std::map<UUID_t, Element*> strokemap;
   typedef std::map<UUID_t, Element*>::iterator StrokeMapIter;
   int timerCount = 0;
-  bool relayUpgrade = false;  // connect to relay via HTTP Upgrade on API port instead of port + 1
-  int pingTicks = 0;
   Timer* ssyncTimer = NULL;
+
+  // HTTP relay (server sends relay='http') - see SWBServer::handleRelayHTTP() for protocol; otherwise raw relay
+  //  w/ TCP connection to port + 1 (old servers)
+  // all requests are made from main thread; HttpClient callbacks (on worker thread) add responses to queue and
+  //  post SOCKET_HTTP event so that responses are handled on main thread
+  enum HttpReqType { HTTP_START, HTTP_POLL, HTTP_SEND, HTTP_END };
+  struct HttpQueue {
+    std::mutex mutex;
+    std::condition_variable cond;  // for waiting for send to complete in disconnectSync()
+    std::deque<std::pair<HttpReqType, HttpResponse>> responses;
+    bool dead = false;  // ScribbleSync disconnected - ignore responses
+    SDL_Event event;
+  };
+  bool httpRelay = false;
+  std::string relayBase;  // base URL
+  std::string relayArgs;  // document, user, token for start request
+  std::string relayId;  // session id; empty if no session
+  std::shared_ptr<HttpQueue> httpQueue;
+  uint64_t startReq = 0, pollReq = 0, sendReq = 0;  // nonzero while request is pending
+  std::string sendBuf;  // data to be sent
+  std::string sendInFlight;  // data being sent (resent w/ same seq if request fails)
+  long long sendSeq = 0;
+  int sendRetryTicks = 0;
+  int savedState = 0;  // syncState before connection was interrupted (restored if session is resumed)
+
+  void httpConnect();
+  void httpRequest(HttpReqType type, HttpRequest req);
+  void httpStart();
+  void httpPoll(bool wait);
+  void httpFlushSend();
+  void onHttpResponse(HttpReqType type, HttpResponse& resp);
+  void onHttpError(HttpReqType type, const HttpResponse& resp);
+  void reconnect();
+  void httpFinishSends(double timeout);
+  bool sendBusy() const;
 
   void startSession();
   void disconnectSync();
@@ -95,13 +137,12 @@ private:
 
   // note volatile does not prevent reordering or ensure atomicity, but I don't think either are an issue here
   volatile int socket = -1;
-  enum SocketEvents {SOCKET_CONNECTED=1, SOCKET_DISCONNECTED, SOCKET_ERROR, SOCKET_RECV, SOCKET_SEND};
+  enum SocketEvents {SOCKET_CONNECTED=1, SOCKET_DISCONNECTED, SOCKET_ERROR, SOCKET_RECV, SOCKET_SEND, SOCKET_HTTP};
 
   std::unique_ptr<MemStream> pendingWrite;
   Semaphore* netSem = NULL;  //SDL_sem*
   std::thread* netThread = NULL;  //SDL_Thread* netThread = NULL;
   static int netThreadFn(void* _self);
-  static bool upgradeConnection(int sock, const std::string& hostport, double timeout);
 };
 
 #endif
