@@ -1,21 +1,12 @@
 // Shared whiteboard server - see swbserver.h
 
-// sockets are handled by ulib/unet.h; platform specific code here is only for loading sqlite and reading password
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#include <termios.h>
-#include <dlfcn.h>
-#endif
+// sockets are handled by ulib/unet.h, so no platform specific code is needed here
 
 #include "swbserver.h"
 #include <stdarg.h>
 #include <climits>
-#include <cmath>
 #include <string.h>
 #include <time.h>
-#include <sys/stat.h>
 #include <csignal>
 #include <random>
 #include <algorithm>
@@ -181,318 +172,11 @@ static double secsSince(SWBServer::Clock::time_point t)
   return std::chrono::duration<double>(SWBServer::Clock::now() - t).count();
 }
 
-static long long wallClockMs()
-{
-  return std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
-}
-
 static std::string addrToStr(struct unet_addr* addr)
 {
   char buf[256];
   return unet_address_str(addr, buf, sizeof(buf)) == 0 ? std::string(buf) : std::string("?");
 }
-
-// user database
-
-// password hash stored for each user is md5("styluslabs" + password); app sends md5(hash + timestamp)
-class SWBAuth
-{
-public:
-  virtual ~SWBAuth() {}
-  virtual bool open(std::string* err) = 0;
-  virtual bool getHash(const std::string& user, std::string& hash) = 0;
-  virtual bool setHash(const std::string& user, const std::string& hash, std::string* err) = 0;
-  virtual int userCount() = 0;
-
-  static std::string hashPassword(const std::string& pw) { return md5hex("styluslabs" + pw); }
-
-  bool checkLogin(const std::string& user, const std::string& signature, const std::string& timestamp)
-  {
-    std::string hash;
-    return !user.empty() && getHash(user, hash) && !hash.empty() && md5hex(hash + timestamp) == signature;
-  }
-};
-
-// text file w/ one "username:hash" per line; blank lines and lines starting w/ '#' are ignored; reloaded if modified
-class SWBUsersFile : public SWBAuth
-{
-public:
-  std::string path;
-  std::map<std::string, std::string> users;
-  time_t mtime = 0;
-
-  SWBUsersFile(const std::string& p) : path(p) {}
-
-  static time_t fileMTime(const std::string& p)
-  {
-    struct stat st;
-    return stat(p.c_str(), &st) == 0 ? st.st_mtime : 0;
-  }
-
-  static bool readLines(const std::string& p, std::vector<std::string>& lines)
-  {
-    FILE* f = fopen(p.c_str(), "rb");
-    if(!f) return false;
-    std::string s;
-    char buf[4096];
-    size_t n;
-    while((n = fread(buf, 1, sizeof(buf), f)) > 0)
-      s.append(buf, n);
-    fclose(f);
-    size_t pos = 0;
-    while(pos < s.size()) {
-      size_t nl = s.find('\n', pos);
-      if(nl == std::string::npos) nl = s.size();
-      std::string line = s.substr(pos, nl - pos);
-      if(!line.empty() && line.back() == '\r') line.pop_back();
-      lines.push_back(line);
-      pos = nl + 1;
-    }
-    return true;
-  }
-
-  static bool parseLine(const std::string& line, std::string& user, std::string& hash)
-  {
-    std::string t = trimStr(line);
-    if(t.empty() || t[0] == '#') return false;
-    size_t colon = t.rfind(':');
-    if(colon == std::string::npos || colon == 0) return false;
-    user = t.substr(0, colon);
-    hash = trimStr(t.substr(colon + 1));
-    return true;
-  }
-
-  bool load(std::string* err)
-  {
-    std::vector<std::string> lines;
-    if(!readLines(path, lines)) {
-      if(err) *err = "unable to read users file " + path;
-      return false;
-    }
-    users.clear();
-    std::string user, hash;
-    for(const std::string& line : lines) {
-      if(parseLine(line, user, hash))
-        users[user] = hash;
-    }
-    mtime = fileMTime(path);
-    return true;
-  }
-
-  bool open(std::string* err) override { return load(err); }
-
-  bool getHash(const std::string& user, std::string& hash) override
-  {
-    if(fileMTime(path) != mtime)
-      load(NULL);  // on failure, keep previous users
-    auto it = users.find(user);
-    if(it == users.end()) return false;
-    hash = it->second;
-    return true;
-  }
-
-  // update existing line for user, otherwise append
-  bool setHash(const std::string& user, const std::string& hash, std::string* err) override
-  {
-    if(user.find(':') != std::string::npos || user.find('\n') != std::string::npos) {
-      if(err) *err = "username cannot contain ':' or newline";
-      return false;
-    }
-    std::vector<std::string> lines;
-    readLines(path, lines);  // OK if file doesn't exist yet
-    bool found = false;
-    std::string u, h;
-    for(std::string& line : lines) {
-      if(parseLine(line, u, h) && u == user) {
-        line = user + ":" + hash;
-        found = true;
-      }
-    }
-    if(!found) {
-      if(lines.empty())
-        lines.push_back("# Write whiteboard server users - username:md5(\"styluslabs\" + password)");
-      lines.push_back(user + ":" + hash);
-    }
-    std::string tmppath = path + ".tmp";
-    FILE* f = fopen(tmppath.c_str(), "wb");
-    if(!f) {
-      if(err) *err = "unable to write " + tmppath;
-      return false;
-    }
-    for(const std::string& line : lines)
-      fprintf(f, "%s\n", line.c_str());
-    bool ok = fclose(f) == 0;
-#ifdef _WIN32
-    remove(path.c_str());  // rename() won't replace existing file on Windows
-#endif
-    if(!ok || rename(tmppath.c_str(), path.c_str()) != 0) {
-      if(err) *err = "unable to write " + path;
-      return false;
-    }
-    return load(err);
-  }
-
-  int userCount() override { return int(users.size()); }
-};
-
-// sqlite database w/ same schema as node.js server (users table w/ username and password columns); sqlite3 shared
-//  library is loaded at runtime only when needed
-class SWBSqlite : public SWBAuth
-{
-public:
-  typedef struct sqlite3 sqlite3;
-  typedef struct sqlite3_stmt sqlite3_stmt;
-  static constexpr int SQLITE_OK = 0, SQLITE_ROW = 100, SQLITE_DONE = 101;
-  static constexpr int SQLITE_OPEN_READWRITE = 0x02, SQLITE_OPEN_CREATE = 0x04;
-
-  int (*p_open_v2)(const char*, sqlite3**, int, const char*) = NULL;
-  int (*p_close)(sqlite3*) = NULL;
-  int (*p_exec)(sqlite3*, const char*, int (*)(void*, int, char**, char**), void*, char**) = NULL;
-  int (*p_prepare_v2)(sqlite3*, const char*, int, sqlite3_stmt**, const char**) = NULL;
-  int (*p_bind_text)(sqlite3_stmt*, int, const char*, int, void (*)(void*)) = NULL;
-  int (*p_step)(sqlite3_stmt*) = NULL;
-  const unsigned char* (*p_column_text)(sqlite3_stmt*, int) = NULL;
-  int (*p_column_int)(sqlite3_stmt*, int) = NULL;
-  int (*p_finalize)(sqlite3_stmt*) = NULL;
-  const char* (*p_errmsg)(sqlite3*) = NULL;
-
-  std::string path;
-  std::string libPath;
-  void* lib = NULL;
-  sqlite3* db = NULL;
-
-  SWBSqlite(const std::string& p, const std::string& lp) : path(p), libPath(lp) {}
-
-  ~SWBSqlite() override
-  {
-    if(db) p_close(db);
-    // we never unload the library
-  }
-
-  static void* loadLib(const char* name)
-  {
-#ifdef _WIN32
-    return (void*)LoadLibraryA(name);
-#else
-    return dlopen(name, RTLD_NOW | RTLD_LOCAL);
-#endif
-  }
-
-  void* sym(const char* name)
-  {
-#ifdef _WIN32
-    return (void*)GetProcAddress((HMODULE)lib, name);
-#else
-    return dlsym(lib, name);
-#endif
-  }
-
-  bool loadLibrary(std::string* err)
-  {
-    std::vector<const char*> names;
-    if(!libPath.empty())
-      names.push_back(libPath.c_str());
-    else {
-#if defined(_WIN32)
-#if defined(_WIN64)
-      names.push_back("winsqlite3.dll");  // included w/ Windows 10+ (uses __stdcall, so only on 64-bit)
-#endif
-      names.push_back("sqlite3.dll");
-#elif defined(__APPLE__)
-      names.push_back("/usr/lib/libsqlite3.dylib");
-      names.push_back("libsqlite3.dylib");
-#else
-      names.push_back("libsqlite3.so.0");
-      names.push_back("libsqlite3.so");
-#endif
-    }
-    for(const char* name : names) {
-      if((lib = loadLib(name)))
-        break;
-    }
-    if(!lib) {
-      if(err) *err = "unable to load sqlite3 library (" + joinStr(std::vector<std::string>(names.begin(), names.end()), ", ")
-          + ") - install sqlite3 or use --sqlite-lib=<path> to specify location";
-      return false;
-    }
-    // casting void* to fn ptr is conditionally supported; go through memcpy to keep compilers quiet
-#define SWB_LOAD_SYM(var, name) do { void* p = sym(name); if(!p) { if(err) *err = "sqlite3 library missing " name; return false; } \
-    memcpy(&var, &p, sizeof(p)); } while(0)
-    SWB_LOAD_SYM(p_open_v2, "sqlite3_open_v2");
-    SWB_LOAD_SYM(p_close, "sqlite3_close");
-    SWB_LOAD_SYM(p_exec, "sqlite3_exec");
-    SWB_LOAD_SYM(p_prepare_v2, "sqlite3_prepare_v2");
-    SWB_LOAD_SYM(p_bind_text, "sqlite3_bind_text");
-    SWB_LOAD_SYM(p_step, "sqlite3_step");
-    SWB_LOAD_SYM(p_column_text, "sqlite3_column_text");
-    SWB_LOAD_SYM(p_column_int, "sqlite3_column_int");
-    SWB_LOAD_SYM(p_finalize, "sqlite3_finalize");
-    SWB_LOAD_SYM(p_errmsg, "sqlite3_errmsg");
-#undef SWB_LOAD_SYM
-    return true;
-  }
-
-  bool open(std::string* err) override
-  {
-    if(!loadLibrary(err))
-      return false;
-    if(p_open_v2(path.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
-      if(err) *err = "error opening database " + path + ": " + (db ? p_errmsg(db) : "out of memory");
-      return false;
-    }
-    const char* schema = "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT, password TEXT, "
-        "email TEXT, displayname TEXT); CREATE INDEX IF NOT EXISTS username_index ON users(username);";
-    if(p_exec(db, schema, NULL, NULL, NULL) != SQLITE_OK) {
-      if(err) *err = "error initializing database " + path + ": " + p_errmsg(db);
-      return false;
-    }
-    return true;
-  }
-
-  // run statement w/ text params; if out is not NULL, it gets the first column of the first row
-  bool query(const char* sql, std::initializer_list<const std::string*> params, std::string* out, std::string* err)
-  {
-    sqlite3_stmt* stmt = NULL;
-    if(p_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-      if(err) *err = p_errmsg(db);
-      return false;
-    }
-    int idx = 1;
-    for(const std::string* p : params)  // SQLITE_TRANSIENT = -1
-      p_bind_text(stmt, idx++, p->c_str(), int(p->size()), (void (*)(void*))(intptr_t)-1);
-    int res = p_step(stmt);
-    bool ok = res == SQLITE_ROW || res == SQLITE_DONE;
-    if(res == SQLITE_ROW && out) {
-      const unsigned char* s = p_column_text(stmt, 0);
-      *out = s ? (const char*)s : "";
-    }
-    else if(out)
-      ok = false;  // no row
-    if(!ok && err && res != SQLITE_DONE) *err = p_errmsg(db);
-    p_finalize(stmt);
-    return ok;
-  }
-
-  bool getHash(const std::string& user, std::string& hash) override
-  {
-    return query("SELECT password FROM users WHERE username = ?;", {&user}, &hash, NULL);
-  }
-
-  bool setHash(const std::string& user, const std::string& hash, std::string* err) override
-  {
-    std::string existing;
-    if(query("SELECT password FROM users WHERE username = ?;", {&user}, &existing, NULL))
-      return query("UPDATE users SET password = ? WHERE username = ?;", {&hash, &user}, NULL, err);
-    return query("INSERT INTO users(username, password) VALUES(?, ?);", {&user, &hash}, NULL, err);
-  }
-
-  int userCount() override
-  {
-    std::string n;
-    return query("SELECT COUNT(1) FROM users;", {}, &n, NULL) ? atoi(n.c_str()) : -1;
-  }
-};
 
 // Whiteboard
 
@@ -592,20 +276,6 @@ bool SWBServer::start()
     }
   }
   std::string err;
-  if(!opts.dbFile.empty())
-    auth.reset(new SWBSqlite(opts.dbFile, opts.sqliteLib));
-  else if(!opts.usersFile.empty())
-    auth.reset(new SWBUsersFile(opts.usersFile));
-  if(auth) {
-    if(!auth->open(&err)) {
-      log(0, "%s", err.c_str());
-      return false;
-    }
-    log(2, "Loaded %d users from %s", auth->userCount(), opts.dbFile.empty() ? opts.usersFile.c_str() : opts.dbFile.c_str());
-  }
-  else
-    log(2, "No user database specified: running in anonymous mode (all logins accepted)");
-
   // relay port is always API port + 1 (client expects this)
   for(int attempt = 0; attempt < 20; ++attempt) {
     apiListen = listenSocket(opts.host, opts.port, &err);
@@ -620,6 +290,7 @@ bool SWBServer::start()
     log(0, "%s", err.c_str());
     return false;
   }
+  log(1, "No authentication - all users are accepted; run only on a trusted network");
   log(2, "Whiteboard server listening on %s port %d (API) and %d (whiteboard)",
       opts.host.empty() ? "all interfaces" : opts.host.c_str(), boundPort, boundPort + 1);
   lastSweep = Clock::now();
@@ -1009,21 +680,8 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
     return debugInfo();
   }
   if(path == "/v1/auth") {
+    // no authentication: user, signature, and timestamp args are ignored except for user name
     std::string user = argStr(args, "user");
-    if(auth) {
-      std::string ts = argStr(args, "timestamp");
-      bool tsOK = true;
-      if(opts.maxClockSkew > 0) {
-        double skew = std::abs(double(wallClockMs() - atoll(ts.c_str())))/1000;
-        tsOK = skew <= opts.maxClockSkew;
-        if(!tsOK)
-          log(1, "%s: auth timestamp for %s off by %.0f seconds", remote.c_str(), user.c_str(), skew);
-      }
-      if(!tsOK || !auth->checkLogin(user, argStr(args, "signature"), ts)) {
-        *status = 401;
-        return "error: invalid username or password";
-      }
-    }
     std::string token = randomToken();
     sessions[token] = Session{user, Clock::now()};
     *status = 200;
@@ -1137,42 +795,6 @@ static SWBServer* activeServer = NULL;
 
 static void onSignal(int) { if(activeServer) activeServer->stop(); }
 
-static std::string readLine()
-{
-  char buf[1024];
-  if(!fgets(buf, sizeof(buf), stdin)) return "";
-  std::string s(buf);
-  while(!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
-  return s;
-}
-
-static std::string readPassword(const char* prompt)
-{
-  fprintf(stderr, "%s", prompt);
-  fflush(stderr);
-  std::string pw;
-#ifdef _WIN32
-  HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
-  DWORD mode = 0;
-  bool console = GetConsoleMode(h, &mode);
-  if(console) SetConsoleMode(h, mode & ~ENABLE_ECHO_INPUT);
-  pw = readLine();
-  if(console) SetConsoleMode(h, mode);
-#else
-  struct termios oldt;
-  bool tty = isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &oldt) == 0;
-  if(tty) {
-    struct termios newt = oldt;
-    newt.c_lflag &= ~ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-  }
-  pw = readLine();
-  if(tty) tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-#endif
-  fprintf(stderr, "\n");
-  return pw;
-}
-
 static int serverUsage()
 {
   fprintf(stderr,
@@ -1180,38 +802,14 @@ static int serverUsage()
       "Runs shared whiteboard server for Write\n"
       "  --host=<address>       address to listen on (default: all interfaces)\n"
       "  --port=<port>          HTTP API port (default 7000); whiteboard data uses port + 1\n"
-      "  --users=<file>         require login; users file has lines username:md5(\"styluslabs\" + password)\n"
-      "  --db=<file>            require login; users in sqlite database (requires sqlite3 shared library)\n"
-      "  --sqlite-lib=<path>    location of sqlite3 shared library\n"
-      "  --add-user=<name>      add user to --users or --db file (prompts for password) and exit\n"
       "  --del-delay=<secs>     keep whiteboard this long after last user disconnects (default 0)\n"
-      "  --max-clock-skew=<secs> reject logins w/ client clock off by more than this (default: no check)\n"
       "  --send-timeout=<secs>  disconnect client if unable to send data for this long (default 60)\n"
       "  --log-level=<level>    error, warn, info (default), or debug\n"
       "  --log-file=<file>      log to file instead of stderr\n"
       "  --dump                 log all data received (w/ --log-level=debug)\n"
-      "  --enable-test          allow test connections w/o login\n"
-      "Without --users or --db, all connections are accepted (anonymous mode)\n");
+      "  --enable-test          accept test token (no /v1/createswb needed) and enable /v1/debug\n"
+      "No authentication is performed - all users are accepted\n");
   return 1;
-}
-
-bool swbAddUser(const SWBServerOptions& opts, const std::string& user, const std::string& password, std::string* err)
-{
-  std::unique_ptr<SWBAuth> auth;
-  if(!opts.dbFile.empty()) auth.reset(new SWBSqlite(opts.dbFile, opts.sqliteLib));
-  else if(!opts.usersFile.empty()) auth.reset(new SWBUsersFile(opts.usersFile));
-  else {
-    if(err) *err = "no users file or database specified";
-    return false;
-  }
-  if(user.empty()) {
-    if(err) *err = "username cannot be empty";
-    return false;
-  }
-  // users file need not exist yet
-  if(!auth->open(err) && opts.usersFile.empty())
-    return false;
-  return auth->setHash(user, SWBAuth::hashPassword(password), err);
 }
 
 bool swbServerRequested(int argc, char* argv[])
@@ -1226,7 +824,6 @@ bool swbServerRequested(int argc, char* argv[])
 int swbServerMain(int argc, char* argv[])
 {
   SWBServerOptions opts;
-  std::string addUser;
   for(int ii = 1; ii < argc; ++ii) {
     std::string arg = argv[ii];
     if(arg == "--server") continue;
@@ -1246,12 +843,7 @@ int swbServerMain(int argc, char* argv[])
 
     if(name == "host") opts.host = value;
     else if(name == "port") opts.port = atoi(value.c_str());
-    else if(name == "users") opts.usersFile = value;
-    else if(name == "db") opts.dbFile = value;
-    else if(name == "sqlite-lib") opts.sqliteLib = value;
-    else if(name == "add-user") addUser = value;
     else if(name == "del-delay") opts.delDelay = atof(value.c_str());
-    else if(name == "max-clock-skew") opts.maxClockSkew = atof(value.c_str());
     else if(name == "send-timeout") opts.sendTimeout = atof(value.c_str());
     else if(name == "log-file") opts.logFile = value;
     else if(name == "log-level") {
@@ -1264,30 +856,6 @@ int swbServerMain(int argc, char* argv[])
     else if(name == "enable-test") opts.enableTest = true;
     else return serverUsage();
   }
-  if(!opts.usersFile.empty() && !opts.dbFile.empty()) {
-    fprintf(stderr, "Only one of --users and --db can be specified\n");
-    return 1;
-  }
-
-  if(!addUser.empty()) {
-    if(opts.usersFile.empty() && opts.dbFile.empty()) {
-      fprintf(stderr, "--add-user requires --users or --db\n");
-      return 1;
-    }
-    std::string pw = readPassword(fstring("Password for %s: ", addUser.c_str()).c_str());
-    if(pw.empty()) {
-      fprintf(stderr, "Password cannot be empty\n");
-      return 1;
-    }
-    std::string err;
-    if(!swbAddUser(opts, addUser, pw, &err)) {
-      fprintf(stderr, "Error adding user: %s\n", err.c_str());
-      return 1;
-    }
-    fprintf(stderr, "User %s saved\n", addUser.c_str());
-    return 0;
-  }
-
   unet_init();  // WSAStartup on Windows; ignore SIGPIPE
   SWBServer server(opts);
   if(!server.start())

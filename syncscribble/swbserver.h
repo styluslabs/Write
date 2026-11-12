@@ -3,8 +3,10 @@
 // Shared whiteboard server, built into Write - run with `Write --server` (see swbServerMain() for options)
 // - C++ port of the node.js server (github.com/styluslabs/stylusboard): HTTP API on port (default 7000) for auth
 //  and creating/opening whiteboards, and raw TCP relay on port + 1 for the whiteboard data itself (scribblesync.cpp)
-// - single threaded, non-blocking sockets w/ unet_poll() (ulib/unet.h); all state is in memory except optional
-//  user database
+// - single threaded, non-blocking sockets w/ unet_poll() (ulib/unet.h); all state is in memory
+// - no authentication: /v1/auth accepts any user (but whiteboard tokens are still random, so relay connections
+//  require a token from /v1/openswb); for public servers, auth and TLS are to be provided by a reverse proxy once
+//  the single port HTTP transport is supported
 // - unet_init() must be called before starting server (Write does this in appInit(); swbServerMain() does it too)
 // - core (Whiteboard: append data, replay history from offset) is independent of transport so that other
 //  transports (e.g., everything over HTTP on a single port) can be added later
@@ -21,11 +23,7 @@ struct SWBServerOptions
 {
   std::string host;  // address to bind; empty for all interfaces
   int port = 7000;  // HTTP API port; whiteboard relay uses port + 1; 0 to choose (free) ports automatically
-  std::string usersFile;  // text file w/ lines "username:md5hash"; see SWBAuth
-  std::string dbFile;  // sqlite database (same schema as node.js server); requires sqlite3 shared library
-  std::string sqliteLib;  // override path to sqlite3 shared library
   double delDelay = 0;  // seconds to keep whiteboard after last user disconnects
-  double maxClockSkew = 0;  // if > 0, reject auth requests w/ timestamp further than this many seconds from now
   double sendTimeout = 60;  // disconnect client if queued data can't be sent for this many seconds
   size_t maxDataLen = size_t(256) << 20;  // max length of single /data message
   bool enableTest = false;  // accept test token SCRIBBLE_SYNC_TEST; enable /v1/debug
@@ -34,7 +32,6 @@ struct SWBServerOptions
   std::string logFile;  // empty for stderr
 };
 
-class SWBAuth;
 struct SWBConn;
 
 class SWBServer
@@ -71,7 +68,7 @@ public:
 
   SWBServer(const SWBServerOptions& o);
   ~SWBServer();
-  // open auth DB and listening sockets; returns false on error (logged)
+  // open log file and listening sockets; returns false on error (logged)
   bool start();
   // event loop; returns when stop() is called; can be run on a separate thread
   void run();
@@ -106,12 +103,9 @@ private:
   std::vector<std::unique_ptr<SWBConn>> conns;
   std::map<std::string, std::unique_ptr<Whiteboard>> whiteboards;
   std::map<std::string, Session> sessions;
-  std::unique_ptr<SWBAuth> auth;
   FILE* logOut = NULL;
 };
 
-// add or update user in opts.usersFile or opts.dbFile; returns false on error, w/ message in err
-bool swbAddUser(const SWBServerOptions& opts, const std::string& user, const std::string& password, std::string* err);
 // `Write --server ...` entry point; returns exit code
 int swbServerMain(int argc, char* argv[]);
 // returns true if argv contains --server
