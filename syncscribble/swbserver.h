@@ -25,6 +25,9 @@ struct SWBServerOptions
   double delDelay = 0;  // seconds to keep whiteboard after last user disconnects
   double sendTimeout = 60;  // disconnect client if queued data can't be sent for this many seconds
   size_t maxDataLen = size_t(256) << 20;  // max length of single /data message
+  // behind reverse proxy: use X-Remote-User header (if present) as user name and X-Real-IP or X-Forwarded-For as
+  //  client address; server must only be reachable via proxy (e.g. host = 127.0.0.1), since headers can be forged
+  bool trustProxy = false;
   bool enableTest = false;  // accept test token SCRIBBLE_SYNC_TEST; enable /v1/debug
   bool dump = false;  // log all received data (log level debug)
   int logLevel = 2;  // 0 = error, 1 = warn, 2 = info, 3 = debug
@@ -89,7 +92,8 @@ private:
   bool handleSWBCommand(SWBConn* c, const std::string& cmdstr);
   void processHTTP(SWBConn* c);
   std::string handleHTTP(const std::string& method, const std::string& target,
-      const std::string& cookie, const std::string& remote, int* status, std::string* setCookie);
+      const std::string& cookie, const std::string& remote, const std::string& proxyUser, int* status,
+      std::string* setCookie);
   void doTimers();
   std::string debugInfo();
 

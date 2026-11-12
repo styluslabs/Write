@@ -45,6 +45,7 @@ struct SWBConn
   bool dead = false;  // to be deleted at end of event loop iteration
   SWBServer::Whiteboard* wb = NULL;
   std::string user;
+  std::string proxyUser;  // user authenticated by reverse proxy (w/ trustProxy)
 };
 
 // utility fns
@@ -290,7 +291,10 @@ bool SWBServer::start()
     log(0, "%s", err.c_str());
     return false;
   }
-  log(1, "No authentication - all users are accepted; run only on a trusted network");
+  if(!opts.trustProxy)
+    log(1, "No authentication - all users are accepted; run only on a trusted network");
+  else if(opts.host != "127.0.0.1" && opts.host != "::1" && opts.host != "localhost")
+    log(1, "--trust-proxy w/o --host=127.0.0.1: proxy headers can be forged by clients connecting directly");
   log(2, "Whiteboard server listening on %s port %d (API) and %d (whiteboard)",
       opts.host.empty() ? "all interfaces" : opts.host.c_str(), boundPort, boundPort + 1);
   lastSweep = Clock::now();
@@ -548,6 +552,12 @@ bool SWBServer::handleSWBCommand(SWBConn* c, const std::string& cmdstr)
       closeConn(c, false);
       return false;
     }
+    if(!c->proxyUser.empty() && user != c->proxyUser) {
+      log(1, "%s: /start user %s does not match proxy user %s", c->remote.c_str(), user.c_str(), c->proxyUser.c_str());
+      queue(c, "<undo><accessdenied message='Whiteboard user does not match login.'/></undo>\n");
+      closeConn(c, true);
+      return false;
+    }
     if(token == "SCRIBBLE_SYNC_TEST" && opts.enableTest) {
       log(2, "%s: connecting to test whiteboard %s as %s", c->remote.c_str(), repo.c_str(), user.c_str());
       if(!wb) {
@@ -637,7 +647,7 @@ void SWBServer::processHTTP(SWBConn* c)
   std::string extraHeaders;
   if(parts.size() == 3 && parts[2].compare(0, 5, "HTTP/") == 0) {
     // headers
-    std::string cookie, useragent, upgrade;
+    std::string cookie, useragent, upgrade, proxyUser, realIP, forwardedFor;
     size_t pos = eol;
     while(pos != std::string::npos && pos < hdr.size()) {
       pos += 2;
@@ -650,9 +660,22 @@ void SWBServer::processHTTP(SWBConn* c)
         if(name == "cookie") cookie = cookie.empty() ? value : cookie + "; " + value;
         else if(name == "user-agent" || name == "user agent") useragent = value;  // Write sends "User Agent"
         else if(name == "upgrade") upgrade = toLower(value);
+        else if(name == "x-remote-user") proxyUser = value;
+        else if(name == "x-real-ip") realIP = value;
+        else if(name == "x-forwarded-for") forwardedFor = forwardedFor.empty() ? value : forwardedFor + "," + value;
       }
       pos = next;
     }
+    if(opts.trustProxy) {
+      // last X-Forwarded-For entry is the one added by our proxy (earlier entries come from client)
+      size_t comma = forwardedFor.rfind(',');
+      std::string fwd = trimStr(comma == std::string::npos ? forwardedFor : forwardedFor.substr(comma + 1));
+      if(!realIP.empty()) c->remote = realIP;
+      else if(!fwd.empty()) c->remote = fwd;
+    }
+    else
+      proxyUser.clear();
+    c->proxyUser = proxyUser;
     // GET /v1/swb w/ "Upgrade: swb" switches connection to whiteboard relay protocol, allowing everything to
     //  go through a single port (and thus through a reverse proxy for TLS and auth)
     QueryArgs args;
@@ -676,7 +699,7 @@ void SWBServer::processHTTP(SWBConn* c)
     }
     else {
       std::string setCookie;
-      body = handleHTTP(parts[0], parts[1], cookie, c->remote, &status, &setCookie);
+      body = handleHTTP(parts[0], parts[1], cookie, c->remote, proxyUser, &status, &setCookie);
       if(!setCookie.empty())
         extraHeaders = "Set-Cookie: " + setCookie + "\r\n";
       log(2, "%s - \"%s\" %d - \"%s\"", c->remote.c_str(), reqline.c_str(), status, useragent.c_str());
@@ -694,7 +717,8 @@ void SWBServer::processHTTP(SWBConn* c)
 
 // returns response body; for successful auth, sets setCookie to "session=<token>"
 std::string SWBServer::handleHTTP(const std::string& method, const std::string& target,
-    const std::string& cookie, const std::string& remote, int* status, std::string* setCookie)
+    const std::string& cookie, const std::string& remote, const std::string& proxyUser, int* status,
+    std::string* setCookie)
 {
   QueryArgs args;
   std::string path = parseTarget(target, args);
@@ -707,8 +731,9 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
     return debugInfo();
   }
   if(path == "/v1/auth") {
-    // no authentication: user, signature, and timestamp args are ignored except for user name
-    std::string user = argStr(args, "user");
+    // no authentication: user, signature, and timestamp args are ignored except for user name; user
+    //  authenticated by reverse proxy (if trustProxy) takes precedence
+    std::string user = proxyUser.empty() ? argStr(args, "user") : proxyUser;
     std::string token = randomToken();
     sessions[token] = Session{user, Clock::now()};
     *status = 200;
@@ -733,6 +758,11 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
     return "error: session expired";
   }
   const std::string& user = sit->second.user;
+  if(!proxyUser.empty() && proxyUser != user) {
+    log(1, "%s: session user %s does not match proxy user %s", remote.c_str(), user.c_str(), proxyUser.c_str());
+    *status = 403;
+    return "";
+  }
 
   if(path == "/v1/createswb" || path == "/v1/openswb") {
     bool create = path == "/v1/createswb";
@@ -836,6 +866,8 @@ static int serverUsage()
       "  --log-level=<level>    error, warn, info (default), or debug\n"
       "  --log-file=<file>      log to file instead of stderr\n"
       "  --dump                 log all data received (w/ --log-level=debug)\n"
+      "  --trust-proxy          running behind reverse proxy: take user name from X-Remote-User header and\n"
+      "                         client address from X-Real-IP or X-Forwarded-For; use w/ --host=127.0.0.1\n"
       "  --enable-test          accept test token (no /v1/createswb needed) and enable /v1/debug\n"
       "No authentication is performed - all users are accepted\n");
   return 1;
@@ -860,7 +892,7 @@ int swbServerMain(int argc, char* argv[])
       return serverUsage();
     std::string name = arg.substr(2), value;
     size_t eq = name.find('=');
-    bool flag = name == "dump" || name == "enable-test" || name == "help";
+    bool flag = name == "dump" || name == "enable-test" || name == "trust-proxy" || name == "help";
     if(eq != std::string::npos) {
       value = name.substr(eq + 1);
       name = name.substr(0, eq);
@@ -883,6 +915,7 @@ int swbServerMain(int argc, char* argv[])
     }
     else if(name == "dump") opts.dump = true;
     else if(name == "enable-test") opts.enableTest = true;
+    else if(name == "trust-proxy") opts.trustProxy = true;
     else return serverUsage();
   }
   unet_init();  // WSAStartup on Windows; ignore SIGPIPE
