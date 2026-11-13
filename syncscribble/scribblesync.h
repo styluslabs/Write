@@ -16,6 +16,8 @@ class ScribbleDoc;
 class ScribbleConfig;
 struct Timer;
 
+class SWBServerThread;
+
 class ScribbleSync
 {
   friend class ScribbleTest;
@@ -36,6 +38,10 @@ public:
   void connectSync(const char *server, const pugi::xml_node& xml, bool master);
   // HTTP Basic auth credentials for HTTP relay requests (set before connectSync(); empty for none)
   std::string authUser, authPass;
+  // whiteboard hosted on this device: server is kept running while this ScribbleSync exists; shareLink is shown
+  //  instead of getDocPath() (which has loopback address)
+  std::shared_ptr<SWBServerThread> hostedServer;
+  std::string shareLink;
   bool isSyncActive();
   bool canSendHist();
   // true if any local history has not been sent or acknowledged (echoed) by server yet

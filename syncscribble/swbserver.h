@@ -18,6 +18,8 @@
 #include <atomic>
 #include <deque>
 #include <chrono>
+#include <functional>
+#include <thread>
 
 struct SWBServerOptions
 {
@@ -36,6 +38,8 @@ struct SWBServerOptions
   bool dump = false;  // log all received data (log level debug)
   int logLevel = 2;  // 0 = error, 1 = warn, 2 = info, 3 = debug
   std::string logFile;  // empty for stderr
+  // if set, called (on server thread) w/ each log message (w/o timestamp or newline) instead of writing to log file
+  std::function<void(int level, const std::string& msg)> logFn;
 };
 
 struct SWBConn;
@@ -126,6 +130,23 @@ private:
   std::map<std::string, std::unique_ptr<SWBPollClient>> pollClients;
   FILE* logOut = NULL;
 };
+
+// server running on its own thread (e.g. whiteboard hosted by Write); server is stopped when this is destroyed
+class SWBServerThread
+{
+public:
+  // tries opts.port, then free ports if that is unavailable (unless opts.port is 0); returns NULL on failure
+  static std::shared_ptr<SWBServerThread> start(SWBServerOptions opts);
+  ~SWBServerThread();
+  int apiPort() const { return server->apiPort(); }
+
+private:
+  std::unique_ptr<SWBServer> server;
+  std::thread thread;
+};
+
+// best guess at this device's LAN (IPv4) address, for links to server on this device; empty if unknown
+std::string swbLanAddress();
 
 // HTTP Basic auth password sent by Write (same hash used for /v1/auth signature, so plain password isn't sent)
 std::string swbAuthSecret(const std::string& password);

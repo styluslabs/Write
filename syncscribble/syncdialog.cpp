@@ -4,7 +4,7 @@
 
 // login dialog
 
-SyncLoginDialog::SyncLoginDialog(const char* username, bool savepw, const char* msg)
+SyncLoginDialog::SyncLoginDialog(const char* username, bool savepw, const char* msg, bool askPassword)
   : Dialog(createDialogNode())
 {
   userEdit = createTextEdit(200);
@@ -16,8 +16,10 @@ SyncLoginDialog::SyncLoginDialog(const char* username, bool savepw, const char* 
   if(msg && msg[0])
     dialogBody->addWidget(new Widget(createTextNode(msg)));
   dialogBody->addWidget(createTitledRow(_("User"), 0, userEdit));
-  dialogBody->addWidget(createTitledRow(_("Password"), 0, passEdit));
-  if(savepw) {
+  Widget* passRow = createTitledRow(_("Password"), 0, passEdit);
+  passRow->setVisible(askPassword);
+  dialogBody->addWidget(passRow);
+  if(savepw && askPassword) {
     savePassword = createCheckBox();
     // if username is filled in but password isn't, the user has seen this dialog before and chose not to save
     //  password, so keep "Save password" unchecked in that case.
@@ -25,7 +27,7 @@ SyncLoginDialog::SyncLoginDialog(const char* username, bool savepw, const char* 
     dialogBody->addWidget(createTitledRow(_("Save password"), savePassword));
   }
   dialogBody->setMargins(8, 8, 0, 8);
-  focusedWidget = username[0] ? passEdit : userEdit;
+  focusedWidget = username[0] && askPassword ? passEdit : userEdit;
   //urlEdit->selectAll();
 
   setTitle(_("Whiteboard Login"));
@@ -47,7 +49,7 @@ static Button* createLinkBtn()
   return linkBtn;
 }
 
-SyncCreateDialog::SyncCreateDialog(const char* url, const char* title, bool showLink)
+SyncCreateDialog::SyncCreateDialog(const char* url, const char* title, bool showLink, bool canHost, bool host)
   : Dialog(createDialogNode())
 {
   urlEdit = createTextEdit(240);
@@ -67,6 +69,17 @@ SyncCreateDialog::SyncCreateDialog(const char* url, const char* title, bool show
   dialogBody->addWidget(createTitledRow(_("Title"), 0, titleEdit));
   dialogBody->addWidget(createTitledRow(_("ID"), 0, urlEdit));
   dialogBody->addWidget(createTitledRow(_("Lecture mode"), lectureMode));
+  if(canHost) {
+    // whiteboard server running in this process - others on the same network can join
+    hostCheck = createCheckBox();
+    hostCheck->setChecked(host);
+    if(linkBtn)
+      linkBtn->setVisible(!host);
+    hostCheck->onToggled = [this](bool checked){
+      if(linkBtn) linkBtn->setVisible(!checked && !msgLabel->isVisible());
+    };
+    dialogBody->addWidget(createTitledRow(_("Host on this device"), hostCheck));
+  }
   dialogBody->setMargins(8, 8, 0, 8);
   focusedWidget = urlEdit;
   urlEdit->selectAll();
@@ -121,9 +134,15 @@ SyncInfoDialog::SyncInfoDialog(const ScribbleSync* sync) : Dialog(createDialogNo
 {
   urlEdit = createTextEdit(240);
   urlEdit->editMode = TextEdit::READ_ONLY;
-  urlEdit->setText(sync->getDocPath().c_str());
+  urlEdit->setText(sync->shareLink.empty() ? sync->getDocPath().c_str() : sync->shareLink.c_str());
 
   Widget* dialogBody = selectFirst(".body-container");
+  if(!sync->shareLink.empty()) {
+    TextBox* hostLabel = new TextBox(createTextNode(_("Hosted on this device - others on the same network can join\n"
+        "using Open Whiteboard with this ID. Closing this whiteboard disconnects everyone.")));
+    hostLabel->node->setAttribute("box-anchor", "left");
+    dialogBody->addWidget(hostLabel);
+  }
   //TextBox* label1 = new TextBox(createTextNode("Connected to:"));
   //dialogBody->addWidget(label1);
   dialogBody->addWidget(createTitledRow(_("ID"), 0, urlEdit));

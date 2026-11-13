@@ -88,6 +88,50 @@ static std::string randomToken()
   return s;
 }
 
+// SWBServerThread
+
+std::shared_ptr<SWBServerThread> SWBServerThread::start(SWBServerOptions opts)
+{
+  std::shared_ptr<SWBServerThread> st(new SWBServerThread);
+  st->server.reset(new SWBServer(opts));
+  if(!st->server->start()) {
+    if(opts.port == 0) return NULL;
+    opts.port = 0;  // e.g. port in use by another instance
+    st->server.reset(new SWBServer(opts));
+    if(!st->server->start()) return NULL;
+  }
+  SWBServer* srv = st->server.get();
+  st->thread = std::thread([srv](){ srv->run(); });
+  return st;
+}
+
+SWBServerThread::~SWBServerThread()
+{
+  if(thread.joinable()) {
+    server->stop();
+    thread.join();
+  }
+}
+
+std::string swbLanAddress()
+{
+  // "connecting" a UDP socket sends nothing, but selects the local address of the route to the given address
+  //  (here a reserved documentation address, so default route is used)
+  char buf[128] = {0};
+  int sock = unet_socket(UNET_UDP, UNET_CONNECT, UNET_DEFAULT, "192.0.2.1", "9");
+  if(sock >= 0) {
+    struct unet_addr addr;
+    if(unet_address(sock, &addr) != 0 || unet_address_str(&addr, buf, sizeof(buf)) != 0)
+      buf[0] = '\0';
+    unet_close(sock);
+  }
+  std::string res(buf);
+  res = res.substr(0, res.rfind(':'));  // remove port
+  if(res.empty() || res.compare(0, 4, "127.") == 0 || res == "0.0.0.0" || res.find(':') != std::string::npos)
+    return "";
+  return res;
+}
+
 // Apache MD5 crypt ($apr1$), supported natively by nginx auth_basic and Apache (not by Caddy, which needs bcrypt)
 std::string apr1Crypt(const std::string& pw, std::string salt)
 {
@@ -359,6 +403,10 @@ void SWBServer::log(int level, const char* fmt, ...)
   char buf[2048];
   vsnprintf(buf, sizeof(buf), fmt, va);
   va_end(va);
+  if(opts.logFn) {
+    opts.logFn(level, buf);
+    return;
+  }
   msg.append(buf).append("\n");
   FILE* f = logOut ? logOut : stderr;
   fputs(msg.c_str(), f);
@@ -637,7 +685,7 @@ void SWBServer::memberLeft(Whiteboard* wb, const std::string& user)
     wb->deleteAt = Clock::now() + std::chrono::milliseconds(int64_t(opts.delDelay*1000));
   }
   else
-    broadcast(wb, std::make_shared<const std::string>("<undo><disconnect name='" + user + "'/></undo>\n"));
+    broadcast(wb, std::make_shared<const std::string>("<undo><disconnect name='" + xmlEscape(user) + "'/></undo>\n"));
 }
 
 // validate start request (raw or HTTP relay); returns whiteboard (created for test token) or NULL w/ deniedMsg set
@@ -781,7 +829,8 @@ bool SWBServer::handleSWBCommand(SWBConn* c, const std::string& cmdstr)
     wb->deletePending = false;
     kickUser(wb, user, c, NULL);
     // client uses uuid to distinguish this connect message from previous ones when reconnecting
-    std::string msg = "<undo><connect name='" + user + "' uuid='" + argStr(args, "uuid", "undefined") + "'/></undo>\n";
+    std::string msg = "<undo><connect name='" + xmlEscape(user) + "' uuid='"
+        + xmlEscape(argStr(args, "uuid", "undefined")) + "'/></undo>\n";
     broadcast(wb, std::make_shared<const std::string>(std::move(msg)));
   }
   else if(command == "/data") {
@@ -967,7 +1016,7 @@ void SWBServer::handleRelayHTTP(SWBConn* c, HTTPRequest& req)
     kickUser(wb, user, NULL, p);
     log(2, "%s connected (HTTP) to %s as %s", c->remote.c_str(), wb->name.c_str(), user.c_str());
     broadcast(wb, std::make_shared<const std::string>(
-        "<undo><connect name='" + user + "' uuid='" + argStr(req.args, "uuid", "undefined") + "'/></undo>\n"));
+        "<undo><connect name='" + xmlEscape(user) + "' uuid='" + xmlEscape(argStr(req.args, "uuid", "undefined")) + "'/></undo>\n"));
     return reply(200, p->id, 3);
   }
 

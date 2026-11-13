@@ -45,6 +45,8 @@ class PenToolbar;
 class Selection;
 class Clipboard;
 class Page;
+class SWBServerThread;
+class SyncCreateDialog;
 
 // whiteboard URL - see parseWhiteboard()
 struct Url {
@@ -262,6 +264,9 @@ private:
   TextBox* notifyText = NULL;
   Timer* notifyTimer = NULL;
   Timer* autoSaveTimer = NULL;
+  std::shared_ptr<SWBServerThread> hostWhiteboardServer();
+  bool hostWhiteboard(SyncCreateDialog* dialog, const std::string& id, const std::string& query);
+  std::weak_ptr<SWBServerThread> hostedServer;  // see ScribbleSync::hostedServer
   std::string syncSession;  // session cookie
   // HTTP Basic auth (for server behind reverse proxy): user and password hash (as sent in /v1/auth signature)
   std::string syncAuthUser, syncAuthPass;

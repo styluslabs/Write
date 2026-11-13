@@ -49,7 +49,7 @@ void ScribbleSync::connectSync(const char* server, const pugi::xml_node& xml, bo
   std::vector<std::string> relays = splitStr<std::vector>(xml.attribute("relay").as_string(), ' ', true);
   httpRelay = std::find(relays.begin(), relays.end(), "http") != relays.end();
   // create fixed part of start URL; version is protocol version
-  startURL = "/start?version=1&user=" + syncUser
+  startURL = "/start?version=1&user=" + urlEncode(syncUser.c_str())
       + "&document=" + docName + "&token=" + xml.attribute("token").as_string();
 
   if(sdlEventType == 0)
@@ -57,7 +57,7 @@ void ScribbleSync::connectSync(const char* server, const pugi::xml_node& xml, bo
   syncState = SYNC_CONNECTING;
   if(httpRelay) {
     relayBase = httpBaseUrl(syncServer);
-    relayArgs = "document=" + docName + "&user=" + syncUser + "&token=" + xml.attribute("token").as_string();
+    relayArgs = "document=" + docName + "&user=" + urlEncode(syncUser.c_str()) + "&token=" + xml.attribute("token").as_string();
     relayId.clear();
     httpQueue = std::make_shared<HttpQueue>();
     SDL_Event& event = httpQueue->event;

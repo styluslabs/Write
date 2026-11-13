@@ -281,6 +281,7 @@ void ScribbleConfig::init()
   cfgS["syncServer"] = IS_DEBUG ? "localhost" : ""; // www.styluslabs.com
   cfgS["syncUser"] = "";
   cfgS["syncPass"] = "";
+  cfg["syncHostLocal"] = 0;  // last choice for "Host on this device" in Create Whiteboard dialog
 }
 
 bool ScribbleConfig::loadConfigString(const char* cfgstr)

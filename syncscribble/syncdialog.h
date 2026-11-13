@@ -8,7 +8,8 @@ class ScribbleSync;
 class SyncLoginDialog : public Dialog
 {
 public:
-  SyncLoginDialog(const char* username, bool savepw, const char* msg);
+  // askPassword = false for server w/o login (whiteboard hosted on this device): only name is needed
+  SyncLoginDialog(const char* username, bool savepw, const char* msg, bool askPassword = true);
 
   TextEdit* userEdit = NULL;
   TextEdit* passEdit = NULL;
@@ -18,12 +19,15 @@ public:
 class SyncCreateDialog : public Dialog
 {
 public:
-  SyncCreateDialog(const char* url, const char* title, bool showLink);
+  // canHost: show "Host on this device" option
+  SyncCreateDialog(const char* url, const char* title, bool showLink, bool canHost, bool host);
   void setMessage(const char* msg);
+  bool hostLocal() const { return hostCheck && hostCheck->isChecked(); }
 
   TextEdit* urlEdit = NULL;
   TextEdit* titleEdit = NULL;
   CheckBox* lectureMode = NULL;
+  CheckBox* hostCheck = NULL;
   TextBox* msgLabel = NULL;
   Button* linkBtn = NULL;
 };

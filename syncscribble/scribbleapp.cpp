@@ -2376,6 +2376,7 @@ void ScribbleApp::updateInfoReceived(char* updateData)
 
 /// Shared whiteboard
 #include "syncdialog.h"
+#include "swbserver.h"
 
 #define MD5_IMPLEMENTATION
 #include "ulib/md5.h"
@@ -2461,7 +2462,8 @@ void ScribbleApp::shareDocument()
   std::string titlein = FSPath(activeDoc()->fileName()).baseName();
   // show link to styluslabs.com/share if no server or user saved
   bool showLink = !cfg->String("syncServer")[0] && !cfg->String("syncUser", "")[0];
-  SyncCreateDialog dialog(toLower(randomStr(6)).c_str(), titlein.c_str(), showLink);
+  bool canHost = !PLATFORM_EMSCRIPTEN;  // no listening sockets in browser
+  SyncCreateDialog dialog(toLower(randomStr(6)).c_str(), titlein.c_str(), showLink, canHost, cfg->Bool("syncHostLocal"));
   for(;;) {
     if(execDialog(&dialog) != Dialog::ACCEPTED)
       return;
@@ -2476,12 +2478,83 @@ void ScribbleApp::shareDocument()
       query += "&rxonly=1";
     if(!url.query.empty())
       query.append("&").append(url.query);
+    if(canHost)
+      cfg->set("syncHostLocal", dialog.hostLocal());
+    if(dialog.hostLocal()) {
+      if(hostWhiteboard(&dialog, url.path, query))
+        return;
+      continue;  // error message set by hostWhiteboard()
+    }
     if(!syncSignIn(url))
       return;
     if(doSharedDoc(url.host, syncAPICall(url, "/v1/createswb?name=" + url.path + query), true))
       return;
     dialog.setMessage(_("Error creating whiteboard"));  // try again
   }
+}
+
+// whiteboard server in this process, shared by all whiteboards hosted on this device; stopped when last such
+//  whiteboard is closed (see ScribbleSync::hostedServer)
+std::shared_ptr<SWBServerThread> ScribbleApp::hostWhiteboardServer()
+{
+  std::shared_ptr<SWBServerThread> server = hostedServer.lock();
+  if(!server) {
+    SWBServerOptions opts;  // all interfaces, port 7000 (or free port if in use), no authentication
+    opts.logLevel = 1;  // warnings
+    opts.logFn = [](int level, const std::string& msg){ SCRIBBLE_LOG("Whiteboard server: %s\n", msg.c_str()); };
+    server = SWBServerThread::start(opts);
+    hostedServer = server;
+  }
+  return server;
+}
+
+static std::string sessionCookie(const HttpResponse& reply)
+{
+  std::string cookie = reply.header("Set-Cookie");
+  if(cookie.compare(0, 8, "session=") != 0)
+    return "";
+  size_t semi = cookie.find(';');
+  return cookie.substr(8, semi == std::string::npos ? std::string::npos : semi - 8);
+}
+
+// create whiteboard hosted on this device (others on same network can join); no login - just syncUser to identify
+//  user in whiteboard (asked for if not set); returns false w/ error message set in dialog on failure
+bool ScribbleApp::hostWhiteboard(SyncCreateDialog* dialog, const std::string& id, const std::string& query)
+{
+  std::string name = trimStr(cfg->String("syncUser", ""));
+  if(name.empty()) {
+    SyncLoginDialog login("", false, _("Enter your name to identify you in the whiteboard"), false);
+    if(execDialog(&login) != Dialog::ACCEPTED)
+      return false;
+    name = trimStr(login.userEdit->text());
+    if(name.empty())
+      return false;
+    cfg->set("syncUser", name.c_str());
+  }
+  std::shared_ptr<SWBServerThread> server = hostWhiteboardServer();
+  if(!server) {
+    dialog->setMessage(_("Unable to start whiteboard server"));
+    return false;
+  }
+  std::string port = std::to_string(server->apiPort());
+  Url url;
+  url.host = "127.0.0.1:" + port;
+  url.path = id;
+  syncSession.clear();
+  syncAuthUser.clear();
+  syncAuthPass.clear();
+  // server accepts any user, so no password or signature
+  syncSession = sessionCookie(syncAPICall(url, "/v1/auth?user=" + urlEncode(name.c_str())));
+  if(syncSession.empty() || !doSharedDoc(url.host, syncAPICall(url, "/v1/createswb?name=" + id + query), true)) {
+    dialog->setMessage(_("Error creating whiteboard"));
+    return false;
+  }
+  ScribbleSync* sync = activeDoc()->scribbleSync;
+  sync->hostedServer = server;
+  std::string lan = swbLanAddress();
+  sync->shareLink = (lan.empty() ? std::string(_("<this device's IP address>")) : lan) + ":" + port + "/" + id;
+  showSyncInfo();  // so user can share ID
+  return true;
 }
 
 bool ScribbleApp::openSharedDoc()
@@ -2588,14 +2661,12 @@ bool ScribbleApp::syncSignIn(const Url& baseurl)
     }
     std::string ts = fstring("%lld", mSecSinceEpoch());
     std::string sig = MD5hex((pw + ts).c_str(), 0, md5Temp);
-    HttpResponse reply = syncAPICall(baseurl, "/v1/auth?user=" + user + "&timestamp=" + ts + "&signature=" + sig);
+    HttpResponse reply = syncAPICall(baseurl, "/v1/auth?user=" + urlEncode(user.c_str()) + "&timestamp=" + ts + "&signature=" + sig);
     if(reply.status == 200) {
       if(savepw && saveuser)
         cfg->set("syncPass", pw.data());
       // session cookie is sent w/ subsequent API calls
-      std::string cookie = reply.header("Set-Cookie");
-      if(cookie.compare(0, 8, "session=") == 0)
-        syncSession = cookie.substr(8, cookie.find(';') == std::string::npos ? std::string::npos : cookie.find(';') - 8);
+      syncSession = sessionCookie(reply);
       return true;
     }
     if(reply.status == 0)
