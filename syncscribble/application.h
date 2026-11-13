@@ -38,6 +38,9 @@ public:
   static void (*frameHook)(const Rect& dirty);
   // UI automation (tests): if set, poll() is called after each layout (see ugui/uidriver.h)
   static UiDriver* uiDriver;
+  // drive app w/ text commands (see UiDriver::queueCommand) read from path (e.g. a FIFO, reopened after each
+  //  writer closes it) or stdin if path is "-"; replies are written to path + ".out" (stdout for stdin)
+  static bool startAutomation(const std::string& path);
   // NVG image flags (e.g. NVG_IMAGE_SRGB) of offscreen framebuffer used for GL rendering
   static int glFramebufferFlags();
 
