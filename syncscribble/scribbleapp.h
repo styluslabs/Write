@@ -263,6 +263,8 @@ private:
   Timer* notifyTimer = NULL;
   Timer* autoSaveTimer = NULL;
   std::string syncSession;  // session cookie
+  // HTTP Basic auth (for server behind reverse proxy): user and password hash (as sent in /v1/auth signature)
+  std::string syncAuthUser, syncAuthPass;
   std::unique_ptr<HttpClient> m_httpClient;
 
   static const int volUpActions[];

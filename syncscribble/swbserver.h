@@ -127,6 +127,12 @@ private:
   FILE* logOut = NULL;
 };
 
+// HTTP Basic auth password sent by Write (same hash used for /v1/auth signature, so plain password isn't sent)
+std::string swbAuthSecret(const std::string& password);
+// htpasswd line (apr1) for user w/ password (as entered in Write); random salt if empty
+std::string swbHtpasswdLine(const std::string& user, const std::string& password, const std::string& salt = "");
+std::string apr1Crypt(const std::string& pw, std::string salt = "");
+
 // `Write --server ...` entry point; returns exit code
 int swbServerMain(int argc, char* argv[]);
 // returns true if argv contains --server

@@ -2527,7 +2527,7 @@ bool ScribbleApp::doSharedDoc(std::string host, const HttpResponse& reply, bool 
   }
   win->actionSendImmed->setChecked(true);  // reflect state of ScribbleSync
   showNotify(_("Connecting..."), 0);
-  activeDoc()->openSharedDoc(host.c_str(), swb, master);
+  activeDoc()->openSharedDoc(host.c_str(), swb, master, syncAuthUser, syncAuthPass);
   if(!master) {
     std::string title = swb.attribute("title").as_string();
     if(title.empty())
@@ -2560,6 +2560,9 @@ bool ScribbleApp::syncSignIn(const Url& baseurl)
     pw = MD5hex(("styluslabs" + baseurl.pass).c_str(), 0, md5Temp);
   std::string msg;
   syncSession.clear();
+  syncAuthUser.clear();
+  syncAuthPass.clear();
+  bool sendBasicAuth = ScribbleSync::basicAuthAllowed(baseurl.host);
   for(;;) {
     bool savepw = false;
     if(user.empty() || pw.empty()) {  // we previously allowed empty username, so check here
@@ -2577,6 +2580,12 @@ bool ScribbleApp::syncSignIn(const Url& baseurl)
       savepw = saveuser && dialog.savePassword->isChecked();
     }
 
+    // for reverse proxy w/ HTTP Basic auth (sent w/ all requests); password is the same hash used for signature,
+    //  so plain password is never sent (see `Write --server --htpasswd-line`)
+    if(sendBasicAuth) {
+      syncAuthUser = user;
+      syncAuthPass = pw;
+    }
     std::string ts = fstring("%lld", mSecSinceEpoch());
     std::string sig = MD5hex((pw + ts).c_str(), 0, md5Temp);
     HttpResponse reply = syncAPICall(baseurl, "/v1/auth?user=" + user + "&timestamp=" + ts + "&signature=" + sig);
@@ -2598,6 +2607,8 @@ bool ScribbleApp::syncSignIn(const Url& baseurl)
     if(saveuser)
       cfg->set("syncPass", "");
     pw.clear();
+    syncAuthUser.clear();
+    syncAuthPass.clear();
   }
 }
 
@@ -2650,6 +2661,8 @@ HttpResponse ScribbleApp::syncAPICall(const Url& baseurl, const std::string& rou
   HttpRequest req(ScribbleSync::httpBaseUrl(baseurl.host) + route);
   if(!syncSession.empty())
     req.headers = "Cookie: session=" + syncSession;
+  req.user = syncAuthUser;
+  req.password = syncAuthPass;
   req.timeout = 15;
   httpClient()->request(std::move(req), [w](HttpResponse&& resp){
     std::lock_guard<std::mutex> lock(w->mutex);

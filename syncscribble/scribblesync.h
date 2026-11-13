@@ -30,8 +30,12 @@ public:
   static std::string splitHostPort(const std::string& hostport, int* port);
   // base URL for HTTP API: "http://host:port" (port 7000 if not specified) unless server includes scheme
   static std::string httpBaseUrl(const std::string& server);
+  // HTTP Basic auth credentials (e.g. for reverse proxy) are only sent over https, or http to loopback address
+  static bool basicAuthAllowed(const std::string& server);
 
   void connectSync(const char *server, const pugi::xml_node& xml, bool master);
+  // HTTP Basic auth credentials for HTTP relay requests (set before connectSync(); empty for none)
+  std::string authUser, authPass;
   bool isSyncActive();
   bool canSendHist();
   // true if any local history has not been sent or acknowledged (echoed) by server yet

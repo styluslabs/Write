@@ -28,7 +28,9 @@ public:
   bool saveDocument(const char* filename, Document::saveflags_t flags = Document::SAVE_NORMAL);
   bool saveDocument(IOStream* strm = NULL, Document::saveflags_t flags = Document::SAVE_NORMAL);
   void resetDocPrefs();
-  void openSharedDoc(const char* server, const pugi::xml_node& xml, bool master);
+  // authUser, authPass: HTTP Basic auth credentials for relay (see ScribbleSync::authUser)
+  void openSharedDoc(const char* server, const pugi::xml_node& xml, bool master,
+      const std::string& authUser = "", const std::string& authPass = "");
   bool checkAndClearErrors(bool forceload = false);
 
   bool isModified() const { return document->isModified(); }

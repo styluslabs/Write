@@ -119,13 +119,25 @@ std::string ScribbleSync::httpBaseUrl(const std::string& server)
 {
   std::string s = server;
   while(!s.empty() && s.back() == '/') s.pop_back();
-  if(s.compare(0, 7, "http://") == 0 || s.compare(0, 8, "https://") == 0)
-    return s;
+  size_t sep = s.find("://");
+  std::string scheme = sep == std::string::npos ? "" : toLower(s.substr(0, sep));
+  if(scheme == "http" || scheme == "https")
+    return scheme + s.substr(sep);
   int port;
   std::string host = splitHostPort(s, &port);
   if(host.find(':') != std::string::npos)
     host = "[" + host + "]";
   return "http://" + host + ":" + std::to_string(port);
+}
+
+bool ScribbleSync::basicAuthAllowed(const std::string& server)
+{
+  std::string base = toLower(httpBaseUrl(server));
+  if(base.compare(0, 8, "https://") == 0)
+    return true;
+  int port;
+  std::string host = toLower(splitHostPort(base, &port));
+  return host == "localhost" || host == "::1" || host.compare(0, 4, "127.") == 0;
 }
 
 int ScribbleSync::netThreadFn(void* _self)
@@ -243,6 +255,8 @@ void ScribbleSync::disconnectSync()
     // pending send is not cancelled so data isn't lost (unless server sees /end first)
     if(!relayId.empty()) {
       HttpRequest req(relayBase + "/v1/swb/end?id=" + relayId);
+      req.user = authUser;
+      req.password = authPass;
       req.method = "POST";
       req.timeout = 10;
       client->request(std::move(req), [](HttpResponse&&){});
@@ -1005,6 +1019,8 @@ void ScribbleSync::httpConnect()
 
 void ScribbleSync::httpRequest(HttpReqType type, HttpRequest req)
 {
+  req.user = authUser;
+  req.password = authPass;
   std::shared_ptr<HttpQueue> q = httpQueue;
   uint64_t id = ScribbleApp::app->httpClient()->request(std::move(req), [q, type](HttpResponse&& resp){
     std::lock_guard<std::mutex> lock(q->mutex);
@@ -1115,6 +1131,13 @@ void ScribbleSync::onHttpError(HttpReqType type, const HttpResponse& resp)
     disconnectSync();
     userMessage(body.find("another location") != std::string::npos ? _("Disconnected: user connected from another location.")
         : _("Error connecting to whiteboard. Please try again."), 2);
+    return;
+  }
+  if(resp.status == 401) {
+    // rejected by reverse proxy (e.g. password changed)
+    SCRIBBLE_LOG("Whiteboard request unauthorized (401)");
+    disconnectSync();
+    userMessage(_("Whiteboard login failed. Please try again."), 2);
     return;
   }
   if(resp.status == 404 && type != HTTP_START) {

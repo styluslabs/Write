@@ -10,6 +10,10 @@
 #include <csignal>
 #include <random>
 #include <algorithm>
+#ifndef _WIN32
+#include <termios.h>
+#include <unistd.h>
+#endif
 #include "ulib/md5.h"
 #include "ulib/unet.h"
 #include "ulib/stringutil.h"
@@ -82,6 +86,81 @@ static std::string randomToken()
   std::string s(20, ' ');
   for(char& c : s) c = chars[rd() % 36];
   return s;
+}
+
+// Apache MD5 crypt ($apr1$), supported natively by nginx auth_basic and Apache (not by Caddy, which needs bcrypt)
+std::string apr1Crypt(const std::string& pw, std::string salt)
+{
+  static const char* itoa64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  static const std::string magic = "$apr1$";
+  if(salt.empty()) {
+    static std::random_device rd;
+    for(int ii = 0; ii < 8; ++ii) salt.push_back(itoa64[rd() % 64]);
+  }
+  salt = salt.substr(0, 8);
+  uint8_t fin[MD5_DIGEST_SIZE];
+  auto md5 = [&fin](const std::string& s) { MD5(s.data(), int(s.size()), fin); };
+  md5(pw + salt + pw);
+  std::string ctx = pw + magic + salt;
+  for(int pl = int(pw.size()); pl > 0; pl -= 16)
+    ctx.append((const char*)fin, std::min(pl, 16));
+  for(size_t ii = pw.size(); ii; ii >>= 1)
+    ctx.push_back((ii & 1) ? '\0' : (pw.empty() ? '\0' : pw[0]));
+  md5(ctx);
+  for(int ii = 0; ii < 1000; ++ii) {
+    std::string f((const char*)fin, MD5_DIGEST_SIZE);
+    std::string s = (ii & 1) ? pw : f;
+    if(ii % 3) s += salt;
+    if(ii % 7) s += pw;
+    s += (ii & 1) ? f : pw;
+    md5(s);
+  }
+  std::string out = magic + salt + "$";
+  auto to64 = [&out](uint32_t v, int n) { while(n--) { out.push_back(itoa64[v & 0x3f]); v >>= 6; } };
+  to64((fin[0] << 16) | (fin[6] << 8) | fin[12], 4);
+  to64((fin[1] << 16) | (fin[7] << 8) | fin[13], 4);
+  to64((fin[2] << 16) | (fin[8] << 8) | fin[14], 4);
+  to64((fin[3] << 16) | (fin[9] << 8) | fin[15], 4);
+  to64((fin[4] << 16) | (fin[10] << 8) | fin[5], 4);
+  to64(fin[11], 2);
+  return out;
+}
+
+std::string swbAuthSecret(const std::string& password)
+{
+  return md5hex("styluslabs" + password);
+}
+
+std::string swbHtpasswdLine(const std::string& user, const std::string& password, const std::string& salt)
+{
+  return user + ":" + apr1Crypt(swbAuthSecret(password), salt);
+}
+
+// read password from stdin, w/o echo if terminal
+static std::string readPassword(const char* prompt)
+{
+  fprintf(stderr, "%s", prompt);
+#ifndef _WIN32
+  struct termios oldt;
+  bool tty = isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &oldt) == 0;
+  if(tty) {
+    struct termios newt = oldt;
+    newt.c_lflag &= ~tcflag_t(ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+  }
+#endif
+  std::string pw;
+  int c;
+  while((c = fgetc(stdin)) != EOF && c != '\n')
+    pw.push_back(char(c));
+  if(!pw.empty() && pw.back() == '\r') pw.pop_back();
+#ifndef _WIN32
+  if(tty) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    fprintf(stderr, "\n");
+  }
+#endif
+  return pw;
 }
 
 static int hexVal(char c)
@@ -1163,7 +1242,10 @@ static int serverUsage()
       "  --trust-proxy          running behind reverse proxy: take user name from X-Remote-User header and\n"
       "                         client address from X-Real-IP or X-Forwarded-For; use w/ --host=127.0.0.1\n"
       "  --enable-test          accept test token (no /v1/createswb needed) and enable /v1/debug\n"
-      "No authentication is performed - all users are accepted\n");
+      "  --htpasswd-line=<user> read password from stdin and print htpasswd line (for reverse proxy w/\n"
+      "                         HTTP Basic auth, e.g. nginx auth_basic) instead of running server\n"
+      "No authentication is performed - all users are accepted - but a reverse proxy can provide authentication\n"
+      "and TLS; see scribbleres/swbserver-nginx.conf in Write source\n");
   return 1;
 }
 
@@ -1210,6 +1292,12 @@ int swbServerMain(int argc, char* argv[])
     else if(name == "dump") opts.dump = true;
     else if(name == "enable-test") opts.enableTest = true;
     else if(name == "trust-proxy") opts.trustProxy = true;
+    else if(name == "htpasswd-line") {
+      if(value.empty() || value.find(':') != std::string::npos) return serverUsage();
+      std::string pw = readPassword("Password: ");
+      printf("%s\n", swbHtpasswdLine(value, pw).c_str());
+      return 0;
+    }
     else return serverUsage();
   }
   unet_init();  // WSAStartup on Windows; ignore SIGPIPE

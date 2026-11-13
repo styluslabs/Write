@@ -73,7 +73,8 @@ bool ScribbleDoc::checkAndClearErrors(bool forceload)
   return document->checkAndClearErrors();
 }
 
-void ScribbleDoc::openSharedDoc(const char* server, const pugi::xml_node& xml, bool master)
+void ScribbleDoc::openSharedDoc(const char* server, const pugi::xml_node& xml, bool master,
+    const std::string& authUser, const std::string& authPass)
 {
   if(!master)
     newDocument();
@@ -81,6 +82,8 @@ void ScribbleDoc::openSharedDoc(const char* server, const pugi::xml_node& xml, b
     delete scribbleSync;
   scribbleSync = new ScribbleSync(this);
   scribbleSync->userMessage = [this](std::string msg, int level){ app->showNotify(msg, level); };
+  scribbleSync->authUser = authUser;
+  scribbleSync->authPass = authPass;
   scribbleSync->connectSync(server, xml, master);
   if(!scribbleSync->enableTX)
     ghostPage.reset();
