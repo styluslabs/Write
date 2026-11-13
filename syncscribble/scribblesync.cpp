@@ -95,13 +95,20 @@ std::string ScribbleSync::splitHostPort(const std::string& hostport, int* port)
 {
   *port = 7000;
   std::string host = hostport;
-  size_t colon = hostport.rfind(':');
-  size_t bracket = hostport.rfind(']');
-  if(colon != std::string::npos && (bracket == std::string::npos ? hostport.find(':') == colon : colon > bracket)) {
-    int p = atoi(hostport.c_str() + colon + 1);
+  // base URL (see parseWhiteboard()): remove scheme and path; default port is then the scheme's default
+  size_t sep = host.find("://");
+  if(sep != std::string::npos) {
+    *port = toLower(host.substr(0, sep)) == "https" ? 443 : 80;
+    host = host.substr(sep + 3, host.find('/', sep + 3) - (sep + 3));
+  }
+  std::string hp = host;
+  size_t colon = hp.rfind(':');
+  size_t bracket = hp.rfind(']');
+  if(colon != std::string::npos && (bracket == std::string::npos ? hp.find(':') == colon : colon > bracket)) {
+    int p = atoi(hp.c_str() + colon + 1);
     if(p > 0 && p < 65535)
       *port = p;
-    host = hostport.substr(0, colon);
+    host = hp.substr(0, colon);
   }
   if(host.size() > 1 && host.front() == '[' && host.back() == ']')
     host = host.substr(1, host.size() - 2);

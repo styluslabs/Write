@@ -253,6 +253,7 @@ private:
   static int updateThreadFn(void* _self);
 #endif
   // sync
+  static Url parseWhiteboard(std::string sharename);
   bool syncSignIn(const Url& baseurl);
   HttpResponse syncAPICall(const Url& baseurl, const std::string& route);
   bool doSharedDoc(std::string host, const HttpResponse& reply, bool master);

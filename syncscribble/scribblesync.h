@@ -26,7 +26,7 @@ public:
 
   static UUID_t strToUuid(const char* str);
   // split "host[:port]" or "[ipv6]:port" - port is HTTP API port (default 7000); raw whiteboard relay (for old
-  //  servers) uses port + 1
+  //  servers) uses port + 1; for base URL "http[s]://host[:port][/path]", path is ignored and default port is 80/443
   static std::string splitHostPort(const std::string& hostport, int* port);
   // base URL for HTTP API: "http://host:port" (port 7000 if not specified) unless server includes scheme
   static std::string httpBaseUrl(const std::string& server);

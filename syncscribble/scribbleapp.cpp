@@ -2380,40 +2380,62 @@ void ScribbleApp::updateInfoReceived(char* updateData)
 #define MD5_IMPLEMENTATION
 #include "ulib/md5.h"
 
-// SWB url string: [user[:pass]@][server[:port]/]whiteboard_id[?query params]
+// SWB url string: [swb://][user[:pass]@][server[:port]/]whiteboard_id[?query params], or
+//  http[s]://[user[:pass]@]server[:port][/path]/whiteboard_id[?query params] (e.g. for server behind reverse
+//  proxy) - host is then the base URL (scheme, server, port, and path, w/o trailing '/'), used as is by
+//  ScribbleSync::httpBaseUrl()
 // we allow SWB login in HTTP credential format, but we don't actually send as HTTP credentials (insecure)
-static Url parseWhiteboard(std::string sharename)
+Url ScribbleApp::parseWhiteboard(std::string sharename)
 {
   Url url;
-  if(sharename.compare(0, 6, "swb://") == 0)
+  std::string scheme;
+  std::string lower = toLower(sharename.substr(0, 8));
+  if(lower.compare(0, 6, "swb://") == 0)
     sharename = sharename.substr(6);
+  else if(lower.compare(0, 7, "http://") == 0 || lower.compare(0, 8, "https://") == 0) {
+    size_t sep = sharename.find("://") + 3;
+    scheme = lower.substr(0, sep);
+    sharename = sharename.substr(sep);
+  }
+  if(!scheme.empty()) {
+    size_t frag = sharename.find('#');
+    if(frag != std::string::npos)
+      sharename.resize(frag);
+  }
+  size_t qmark = sharename.find('?');
+  if(qmark != std::string::npos) {
+    url.query = sharename.substr(qmark+1);
+    sharename.resize(qmark);
+  }
+  // credentials can only be in server part
   size_t atsym = sharename.find('@');
-  if(atsym != std::string::npos) {
+  if(atsym != std::string::npos && atsym < sharename.find('/')) {
     size_t colon = sharename.find(':');
     if(colon != std::string::npos && colon < atsym) {
-      url.pass = sharename.substr(colon + 1, atsym - colon);
+      url.pass = sharename.substr(colon + 1, atsym - colon - 1);
       url.user = sharename.substr(0, colon);
     }
     else
       url.user = sharename.substr(0, atsym);
     sharename.substr(atsym+1).swap(sharename);
   }
-  size_t slash = sharename.find('/');
+  // whiteboard id can't contain '/', so for URL, everything before last '/' is base URL
+  size_t slash = scheme.empty() ? sharename.find('/') : sharename.rfind('/');
   if(slash != std::string::npos) {
-    url.host = sharename.substr(0, slash);
+    url.host = scheme + sharename.substr(0, slash);
     sharename.substr(slash+1).swap(sharename);
+  }
+  else if(!scheme.empty()) {
+    url.host = scheme + sharename;  // no whiteboard id
+    sharename.clear();
   }
   else
     url.host = ScribbleApp::cfg->String("syncServer");
   if(url.host.empty())
     url.host = "www.styluslabs.com";
-  size_t qmark = sharename.find('?');
-  if(qmark != std::string::npos) {
-    url.query = sharename.substr(qmark+1);
-    url.path = sharename.substr(0, qmark);
-  }
-  else
-    url.path = sharename;
+  while(url.host.size() > 1 && url.host.back() == '/')
+    url.host.pop_back();
+  url.path = sharename;
   return url;
 }
 
@@ -2497,6 +2519,12 @@ bool ScribbleApp::doSharedDoc(std::string host, const HttpResponse& reply, bool 
   const char* token = swb.attribute("token").as_string(NULL);
   if(!name || !token)
     return false;
+  // raw relay (old servers) is plain TCP, so can't be used for https:// server
+  std::string relays = std::string(" ") + swb.attribute("relay").as_string() + " ";
+  if(relays.find(" http ") == std::string::npos && toLower(host.substr(0, 8)) == "https://") {
+    messageBox(Warning, _("Whiteboard"), _("Server does not support secure (https) whiteboard connections."));
+    return false;
+  }
   win->actionSendImmed->setChecked(true);  // reflect state of ScribbleSync
   showNotify(_("Connecting..."), 0);
   activeDoc()->openSharedDoc(host.c_str(), swb, master);
