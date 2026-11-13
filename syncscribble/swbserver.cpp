@@ -1128,8 +1128,14 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
   }
   if(path == "/v1/auth") {
     // no authentication: user, signature, and timestamp args are ignored except for user name; user
-    //  authenticated by reverse proxy (if trustProxy) takes precedence
+    //  authenticated by reverse proxy (if trustProxy) takes precedence; w/o user, reply indicates that no password
+    //  is needed (servers w/ authentication, incl. reverse proxy w/ Basic auth, reply w/ an error instead)
     std::string user = proxyUser.empty() ? argStr(args, "user") : proxyUser;
+    if(user.empty()) {
+      // probe from client to see if password is needed (so it can ask for just a name); no session created
+      *status = 200;
+      return "<auth none='1'/>";
+    }
     std::string token = randomToken();
     sessions[token] = Session{user, Clock::now()};
     *status = 200;

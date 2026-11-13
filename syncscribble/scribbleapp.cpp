@@ -2518,19 +2518,9 @@ static std::string sessionCookie(const HttpResponse& reply)
 }
 
 // create whiteboard hosted on this device (others on same network can join); no login - just syncUser to identify
-//  user in whiteboard (asked for if not set); returns false w/ error message set in dialog on failure
+//  user in whiteboard (asked for if not set); returns false w/ error message set in dialog on failure (or cancel)
 bool ScribbleApp::hostWhiteboard(SyncCreateDialog* dialog, const std::string& id, const std::string& query)
 {
-  std::string name = trimStr(cfg->String("syncUser", ""));
-  if(name.empty()) {
-    SyncLoginDialog login("", false, _("Enter your name to identify you in the whiteboard"), false);
-    if(execDialog(&login) != Dialog::ACCEPTED)
-      return false;
-    name = trimStr(login.userEdit->text());
-    if(name.empty())
-      return false;
-    cfg->set("syncUser", name.c_str());
-  }
   std::shared_ptr<SWBServerThread> server = hostWhiteboardServer();
   if(!server) {
     dialog->setMessage(_("Unable to start whiteboard server"));
@@ -2540,12 +2530,10 @@ bool ScribbleApp::hostWhiteboard(SyncCreateDialog* dialog, const std::string& id
   Url url;
   url.host = "127.0.0.1:" + port;
   url.path = id;
-  syncSession.clear();
-  syncAuthUser.clear();
-  syncAuthPass.clear();
-  // server accepts any user, so no password or signature
-  syncSession = sessionCookie(syncAPICall(url, "/v1/auth?user=" + urlEncode(name.c_str())));
-  if(syncSession.empty() || !doSharedDoc(url.host, syncAPICall(url, "/v1/createswb?name=" + id + query), true)) {
+  // server has no authentication, so syncSignIn() just uses syncUser (asking for it if not set)
+  if(!syncSignIn(url))
+    return false;
+  if(!doSharedDoc(url.host, syncAPICall(url, "/v1/createswb?name=" + id + query), true)) {
     dialog->setMessage(_("Error creating whiteboard"));
     return false;
   }
@@ -2636,6 +2624,35 @@ bool ScribbleApp::syncSignIn(const Url& baseurl)
   syncAuthUser.clear();
   syncAuthPass.clear();
   bool sendBasicAuth = ScribbleSync::basicAuthAllowed(baseurl.host);
+  // server w/o authentication (e.g. whiteboard hosted by another Write)? try w/o password first, w/ syncUser as
+  //  name if none given; if name isn't known, probe server (/v1/auth w/o user) to see if password is needed
+  if(pw.empty()) {
+    std::string name = user.empty() ? trimStr(cfg->String("syncUser", "")) : user;
+    if(name.empty()) {
+      HttpResponse probe = syncAPICall(baseurl, "/v1/auth");
+      std::string body(probe.body.begin(), probe.body.end());
+      if(probe.status == 200 && body.find("<auth none='1'") != std::string::npos) {
+        SyncLoginDialog dialog("", false, _("Enter your name to identify you in the whiteboard"), false);
+        if(execDialog(&dialog) != Dialog::ACCEPTED)
+          return false;
+        name = trimStr(dialog.userEdit->text());
+        cfg->set("syncUser", name.c_str());
+      }
+      else if(probe.status == 0)
+        msg = _("Could not connect to ") + baseurl.host;
+    }
+    if(!name.empty()) {
+      HttpResponse reply = syncAPICall(baseurl, "/v1/auth?user=" + urlEncode(name.c_str()));
+      syncSession = reply.status == 200 ? sessionCookie(reply) : "";
+      if(!syncSession.empty())
+        return true;
+      if(reply.status == 0)
+        msg = _("Could not connect to ") + baseurl.host;
+      // otherwise, password is needed - prefill name in login dialog
+      if(user.empty())
+        user = name;
+    }
+  }
   for(;;) {
     bool savepw = false;
     if(user.empty() || pw.empty()) {  // we previously allowed empty username, so check here

@@ -404,6 +404,7 @@ int appMain(int argc, char* argv[])
 
 // debug hook called after each frame is drawn (before present) - see scribbletest/redrawcheck.cpp
 void (*Application::frameHook)(const Rect& dirty) = NULL;
+std::function<int(Dialog*)> Application::execDialogHook;
 static Rect lastDirty;
 
 int Application::glFramebufferFlags() { return nvglFBFlags; }
@@ -568,6 +569,10 @@ void Application::execWindow(Window* w)
 
 int Application::execDialog(Dialog* dialog)
 {
+  if(execDialogHook) {
+    dialog->result = execDialogHook(dialog);
+    return dialog->result;
+  }
   execWindow(dialog);
   return dialog->result;
 }
