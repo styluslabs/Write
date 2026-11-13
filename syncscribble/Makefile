@@ -43,6 +43,7 @@ SOURCES += \
   ../ugui/widgets.cpp \
   ../ugui/textedit.cpp \
   ../ugui/colorwidgets.cpp \
+  ../ugui/uidriver.cpp \
   ../ugui/platforms/http_unet.cpp
 
 SOURCES += \

@@ -3,6 +3,7 @@
 #include "usvg/svgwriter.h"
 #include "usvg/svgparser.h"
 #include "ugui/svggui.h"
+#include "ugui/uidriver.h"
 #include "scribbleapp.h"
 #include "scribbleview.h"
 #include "scribbleconfig.h"
@@ -404,7 +405,7 @@ int appMain(int argc, char* argv[])
 
 // debug hook called after each frame is drawn (before present) - see scribbletest/redrawcheck.cpp
 void (*Application::frameHook)(const Rect& dirty) = NULL;
-std::function<int(Dialog*)> Application::execDialogHook;
+UiDriver* Application::uiDriver = NULL;
 static Rect lastDirty;
 
 int Application::glFramebufferFlags() { return nvglFBFlags; }
@@ -437,6 +438,8 @@ void Application::layoutAndDraw()
       frameHook(lastDirty);
     platformPresent();
   }
+  if(uiDriver)
+    uiDriver->poll();
 }
 
 bool Application::layoutAndDraw(int w, int h)
@@ -569,10 +572,6 @@ void Application::execWindow(Window* w)
 
 int Application::execDialog(Dialog* dialog)
 {
-  if(execDialogHook) {
-    dialog->result = execDialogHook(dialog);
-    return dialog->result;
-  }
   execWindow(dialog);
   return dialog->result;
 }

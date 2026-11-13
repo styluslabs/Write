@@ -9,6 +9,7 @@ struct Rect;
 class SvgGui;
 class Window;
 class Dialog;
+class UiDriver;
 struct SDL_Window;
 struct SDL_Rect;
 union SDL_Event;
@@ -35,9 +36,8 @@ public:
   // debug hook called after each frame is drawn, before present (see scribbletest/redrawcheck.cpp); for GL,
   //  the frame has been blitted to the window framebuffer, which is bound
   static void (*frameHook)(const Rect& dirty);
-  // test hook: if set, execDialog() returns result of this instead of showing dialog (so tests can't block on
-  //  a modal dialog); hook can fill in dialog's fields before returning Dialog::ACCEPTED
-  static std::function<int(Dialog*)> execDialogHook;
+  // UI automation (tests): if set, poll() is called after each layout (see ugui/uidriver.h)
+  static UiDriver* uiDriver;
   // NVG image flags (e.g. NVG_IMAGE_SRGB) of offscreen framebuffer used for GL rendering
   static int glFramebufferFlags();
 
