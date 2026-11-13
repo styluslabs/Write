@@ -23,7 +23,8 @@ struct SWBServerOptions
 {
   std::string host;  // address to bind; empty for all interfaces
   int port = 7000;  // HTTP API port; whiteboard relay uses port + 1; 0 to choose (free) ports automatically
-  double delDelay = 0;  // seconds to keep whiteboard after last user disconnects
+  double delDelay = 60;  // seconds to keep whiteboard after last user disconnects (so all users can reconnect after
+  //  brief network outage); unused whiteboard can be replaced by createswb
   double sendTimeout = 60;  // disconnect client if queued data can't be sent for this many seconds
   double pollTimeout = 25;  // HTTP relay: max time to hold poll request w/o new data
   double pollClientTimeout = 30;  // HTTP relay: client is disconnected if no request (or pending poll) for this long

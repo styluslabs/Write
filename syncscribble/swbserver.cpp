@@ -1036,6 +1036,14 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
     bool create = path == "/v1/createswb";
     std::string repo = argStr(args, "name");
     auto it = whiteboards.find(repo);
+    // whiteboard kept for delDelay after all clients left can be replaced by createswb (but not a new whiteboard
+    //  which nobody has connected to yet, i.e. w/ empty history)
+    if(create && it != whiteboards.end() && it->second->clients.empty() && it->second->pollers.empty()
+        && it->second->histSize > 0) {
+      log(2, "%s replacing unused whiteboard %s", user.c_str(), repo.c_str());
+      whiteboards.erase(it);
+      it = whiteboards.end();
+    }
     if(repo.empty() || (create && it != whiteboards.end()) || (!create && it == whiteboards.end())) {
       *status = 404;
       return "";
@@ -1147,7 +1155,7 @@ static int serverUsage()
       "Runs shared whiteboard server for Write\n"
       "  --host=<address>       address to listen on (default: all interfaces)\n"
       "  --port=<port>          HTTP API port (default 7000); whiteboard data uses port + 1\n"
-      "  --del-delay=<secs>     keep whiteboard this long after last user disconnects (default 0)\n"
+      "  --del-delay=<secs>     keep whiteboard this long after last user disconnects (default 60)\n"
       "  --send-timeout=<secs>  disconnect client if unable to send data for this long (default 60)\n"
       "  --log-level=<level>    error, warn, info (default), or debug\n"
       "  --log-file=<file>      log to file instead of stderr\n"
