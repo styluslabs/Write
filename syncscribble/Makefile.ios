@@ -31,7 +31,7 @@ PLIST_FIXUP = perl -0777 -pi -e 's{<key>UILaunchStoryboardName</key>\s*<string>[
 # signing: IOS_SIGN_KEY (.p12, or PEM private key w/ IOS_SIGN_CERT = .cer/.pem), IOS_SIGN_PASS (if needed), and
 #  PROVISIONING_PROFILE - set in $(IOS_SIGNING)/signing.mk (read if present) or on make command line; ad-hoc
 #  signature (won't install on device) if IOS_SIGN_KEY not set
-IOS_SIGNING ?= $(HOME)/ios-signing
+IOS_SIGNING ?= $(IOS_SDK)/signing
 -include $(IOS_SIGNING)/signing.mk
 ifneq ($(IOS_SIGN_KEY),)
   SIGN = zsign -q -f -k $(IOS_SIGN_KEY) $(if $(IOS_SIGN_CERT),-c $(IOS_SIGN_CERT)) \
