@@ -259,12 +259,18 @@ include $(BUILD_SHARED_LIBRARY)
 else ifneq ($(EMSDK),)
 # Emscripten
 
-SOURCES += wasm/wasmhelper.c
-INCSYS += ../SDL/include
-#INCFILES = linux/force_glibc.h
-DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
+# platform layer: ugui/platforms/wasmmain.cpp (requires JSPI); HTTP via fetch(); SW rendering only
+# - `source ~/emsdk/emsdk_env.sh` then `make` builds EmRelease/Write.html (+ .js, .wasm); serve w/ any web
+#  server, e.g. `python3 -m http.server -d EmRelease`, and open /Write.html
+SOURCES += \
+  ../ugui/platforms/wasmmain.cpp \
+  ../ugui/platforms/http_fetch.cpp
+DEFS += SVGGUI_NO_SDL PLATFORM_HTTP_BACKEND
 DEBUG ?= 0
-LIBS = ../SDL/build/build/.libs/libSDL2.a  ../SDL/build/build/.libs/libSDL2main.a
+# files in /app (appDir) in Emscripten's in-memory FS
+EMBED_FILES = \
+  ../scribbleres/fonts/Roboto-Regular.ttf@/app/Roboto-Regular.ttf \
+  ../scribbleres/Intro.svg@/app/Intro.svg
 
 include Makefile.wasm
 

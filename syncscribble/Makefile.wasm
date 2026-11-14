@@ -10,8 +10,7 @@ TARGET:=$(TARGET).html
 
 # common C and C++ flags
 CFLAGS = -MMD -Wall -Wshadow -Werror=return-type
-#-pthread
-# C++; -Wconditionally-supported catches passing non-POD to varargs fn
+# C++
 CXX = em++
 CXXFLAGS = --std=c++14 -fno-rtti -fno-exceptions -Wno-unused-parameter -Wno-unused-function -Wno-unused
 # C
@@ -19,10 +18,10 @@ CC = emcc
 CCFLAGS = --std=c99 -Werror=implicit-function-declaration -Werror=int-conversion
 # linker
 LD = em++
-LDFLAGS = -s MAX_WEBGL_VERSION=2 -s ALLOW_MEMORY_GROWTH=1
-# for calling C fns from js:
-LDFLAGS += -s EXPORTED_FUNCTIONS='["_main", "_emPtrEvent"]' -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]'
-#-pthread
+# JSPI: main() (and anything called from it) can suspend while awaiting a JS Promise - see wasmmain.cpp
+LDFLAGS = -sJSPI -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1MB -sEXPORTED_FUNCTIONS=_main,_malloc,_free
+LDFLAGS += -sEXPORTED_RUNTIME_METHODS=HEAPU8,UTF8ToString,stringToNewUTF8
+LDFLAGS += --shell-file ../ugui/platforms/wasmshell.html $(EMBED_FILES:%=--embed-file %)
 
 DEBUG ?= 0
 ifneq ($(DEBUG), 0)

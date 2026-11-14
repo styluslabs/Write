@@ -34,6 +34,13 @@ struct SWBServerOptions
   // behind reverse proxy: use X-Remote-User header (if present) as user name and X-Real-IP or X-Forwarded-For as
   //  client address; server must only be reachable via proxy (e.g. host = 127.0.0.1), since headers can be forged
   bool trustProxy = false;
+  // CORS, so web app (Write in browser) served from another origin can use the server: "*" for any origin, or
+  //  space separated list of allowed origins (e.g. "https://example.com"); empty (default) to disable
+  std::string corsOrigin;
+  // serve Write web app (Emscripten build: Write.html, .js, .wasm) and other files from this directory; Write.html
+  //  is also served for "/" and "/<id>", so whiteboard links (http(s)://host/<id>) open in a browser; empty to
+  //  disable
+  std::string webRoot;
   bool enableTest = false;  // accept test token SCRIBBLE_SYNC_TEST; enable /v1/debug
   bool dump = false;  // log all received data (log level debug)
   int logLevel = 2;  // 0 = error, 1 = warn, 2 = info, 3 = debug
@@ -110,6 +117,7 @@ private:
   void handleRequest(SWBConn* c, HTTPRequest& req);
   void sendHTTP(SWBConn* c, int status, const std::string& body, const std::string& extraHeaders, bool keepAlive);
   void handleRelayHTTP(SWBConn* c, HTTPRequest& req);
+  void serveStatic(SWBConn* c, HTTPRequest& req);
   void respondPoll(SWBPollClient* pc);
   void removePollClient(SWBPollClient* pc);
   std::string handleHTTP(const std::string& method, const std::string& target,

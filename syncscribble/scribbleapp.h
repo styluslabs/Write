@@ -30,7 +30,7 @@ struct UIDocStream : public MemStream
 #endif
 
 // enable update on Android now that we can't update on Google Play
-#define ENABLE_UPDATE !PLATFORM_IOS
+#define ENABLE_UPDATE (!PLATFORM_IOS && !PLATFORM_EMSCRIPTEN)
 
 class MainWindow;
 class ScribbleConfig;

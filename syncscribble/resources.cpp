@@ -51,10 +51,6 @@ static ConstMemStream getResourceStream(const std::string& name)
 // SVG and CSS for GUI
 #include "ugui/theme.cpp"
 
-#if PLATFORM_EMSCRIPTEN
-#include "Roboto-Regular.c"
-#endif
-
 void setupResources()
 {
   static std::string guiSVG;
@@ -100,8 +96,8 @@ void setupResources()
   sansBackupPath = FSPath("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
   //sansItalicPath = FSPath(fontpath, "Roboto-Italic.ttf");
 #elif PLATFORM_EMSCRIPTEN
-  Painter::loadFontMem("ui-sans", Roboto_Regular_ttf, Roboto_Regular_ttf_len);
-  const char* sans = NULL;
+  // embedded in /app w/ --embed-file (see Makefile)
+  const char* sans = sansBackupPath.c_str();
   const char* fallback = NULL;
 #endif
   if(sans && !Painter::loadFont("ui-sans", sans) && !Painter::loadFont("ui-sans", sansBackupPath.c_str())) {

@@ -347,7 +347,9 @@ void ScribbleApp::init()
 #endif
 
   if(!argDoc.empty()) {
-    if(StringRef(argDoc).startsWith("swb://")) {
+    // http(s) URL is a whiteboard link (base URL + whiteboard id) - see parseWhiteboard()
+    std::string lower = toLower(argDoc);
+    if(StringRef(lower).startsWith("swb://") || StringRef(lower).startsWith("http://") || StringRef(lower).startsWith("https://")) {
       if(!openSharedDoc(argDoc)) {
         showNotify(fstring(_("\"%s\" could not be opened."), argDoc.c_str()), 2);
         PLATFORM_LOG("Error opening whiteboard link %s\n", argDoc.c_str());
@@ -2131,7 +2133,7 @@ void ScribbleApp::exportPDF()
   activeDoc()->checkAndClearErrors(true);  // clear errors so document can be saved
   writePDF(strm);
   std::string str = strm.str();
-  jsSaveFile("Untitled.pdf", str.data(), str.size());
+  jsSaveFile("Untitled.pdf", (void*)str.data(), int(str.size()));
 }
 #else
 void ScribbleApp::exportPDF()
@@ -2510,13 +2512,19 @@ std::shared_ptr<SWBServerThread> ScribbleApp::hostWhiteboardServer()
   return server;
 }
 
+// session id from /v1/auth reply: Set-Cookie header, or <auth session='...'/> body for clients that can't read
+//  Set-Cookie (browser)
 static std::string sessionCookie(const HttpResponse& reply)
 {
   std::string cookie = reply.header("Set-Cookie");
-  if(cookie.compare(0, 8, "session=") != 0)
-    return "";
-  size_t semi = cookie.find(';');
-  return cookie.substr(8, semi == std::string::npos ? std::string::npos : semi - 8);
+  if(cookie.compare(0, 8, "session=") == 0) {
+    size_t semi = cookie.find(';');
+    return cookie.substr(8, semi == std::string::npos ? std::string::npos : semi - 8);
+  }
+  pugi::xml_document doc;
+  if(!reply.body.empty() && doc.load_buffer(reply.body.data(), reply.body.size()))
+    return doc.child("auth").attribute("session").as_string();
+  return "";
 }
 
 // create whiteboard hosted on this device (others on same network can join); no login - just syncUser to identify
@@ -2749,8 +2757,9 @@ HttpResponse ScribbleApp::syncAPICall(const Url& baseurl, const std::string& rou
   struct Wait { std::mutex mutex; std::condition_variable cond; bool done = false; HttpResponse resp; };
   auto w = std::make_shared<Wait>();
   HttpRequest req(ScribbleSync::httpBaseUrl(baseurl.host) + route);
+  // browser doesn't allow Cookie header, so also send X-Session (older servers only accept Cookie)
   if(!syncSession.empty())
-    req.headers = "Cookie: session=" + syncSession;
+    req.headers = "Cookie: session=" + syncSession + "\r\nX-Session: " + syncSession;
   req.user = syncAuthUser;
   req.password = syncAuthPass;
   req.timeout = 15;
@@ -2761,8 +2770,14 @@ HttpResponse ScribbleApp::syncAPICall(const Url& baseurl, const std::string& rou
     w->cond.notify_all();
   });
   // request timeout ensures callback is called
+#if PLATFORM_EMSCRIPTEN
+  // callback is called from browser event loop, so suspend (JSPI) until done
+  while(!w->done)
+    platformSleep(10);
+#else
   std::unique_lock<std::mutex> lock(w->mutex);
   w->cond.wait(lock, [&w](){ return w->done; });
+#endif
   return std::move(w->resp);
 }
 

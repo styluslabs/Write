@@ -17,6 +17,7 @@
 #include "ulib/md5.h"
 #include "ulib/unet.h"
 #include "ulib/stringutil.h"
+#include "ulib/fileutil.h"
 
 // relay message size limit (other than /data payload) and HTTP header limit
 static constexpr size_t MAX_CMD_LEN = 64*1024;
@@ -54,6 +55,7 @@ struct SWBConn
   SWBServer::Whiteboard* wb = NULL;
   std::string user;
   std::string proxyUser;  // user authenticated by reverse proxy (w/ trustProxy)
+  std::string corsHeaders;  // for response to current request
   // HTTP
   std::unique_ptr<HTTPRequest> req;  // header received, waiting for body
   SWBPollClient* pollWait = NULL;  // poll request waiting for data (no further requests processed until answered)
@@ -239,7 +241,7 @@ struct HTTPRequest
 {
   std::string reqline, method, target, path;
   QueryArgs args;
-  std::string cookie, useragent, proxyUser, realIP, forwardedFor;
+  std::string cookie, useragent, proxyUser, realIP, forwardedFor, origin, ifNoneMatch, accept;
   bool keepAlive = false;
   bool expect100 = false;
   bool chunked = false;
@@ -879,6 +881,8 @@ static bool parseHTTPHeader(const std::string& hdr, HTTPRequest& req)
       std::string name = toLower(trimStr(line.substr(0, colon)));
       std::string value = trimStr(line.substr(colon + 1));
       if(name == "cookie") req.cookie = req.cookie.empty() ? value : req.cookie + "; " + value;
+      // session id in header instead of cookie (browser can't send Cookie header or read Set-Cookie)
+      else if(name == "x-session") req.cookie = req.cookie.empty() ? "session=" + value : req.cookie + "; session=" + value;
       else if(name == "user-agent" || name == "user agent") req.useragent = value;  // Write sends "User Agent"
       else if(name == "connection") connection = toLower(value);
       else if(name == "content-length") {
@@ -888,6 +892,9 @@ static bool parseHTTPHeader(const std::string& hdr, HTTPRequest& req)
       else if(name == "transfer-encoding") req.chunked = true;  // not supported
       else if(name == "expect") req.expect100 = toLower(value) == "100-continue";
       else if(name == "x-remote-user") req.proxyUser = value;
+      else if(name == "origin") req.origin = value;
+      else if(name == "if-none-match") req.ifNoneMatch = value;
+      else if(name == "accept") req.accept = value;
       else if(name == "x-real-ip") req.realIP = value;
       else if(name == "x-forwarded-for") req.forwardedFor = req.forwardedFor.empty() ? value : req.forwardedFor + "," + value;
     }
@@ -949,10 +956,90 @@ void SWBServer::processHTTP(SWBConn* c)
   }
 }
 
+// CORS response headers for request (empty if CORS not enabled or origin not allowed)
+static std::string httpHeader(int status, size_t contentLength, const char* contentType, bool keepAlive);
+
+static std::string corsHeaders(const SWBServerOptions& opts, const HTTPRequest& req)
+{
+  if(opts.corsOrigin.empty() || req.origin.empty())
+    return "";
+  if(opts.corsOrigin == "*")
+    return "Access-Control-Allow-Origin: *\r\n";
+  for(const std::string& allowed : splitStr<std::vector>(opts.corsOrigin.c_str(), ' ', true)) {
+    if(allowed == req.origin)
+      return "Access-Control-Allow-Origin: " + req.origin + "\r\nVary: Origin\r\n";
+  }
+  return "";
+}
+
+static const char* contentType(const std::string& ext)
+{
+  static const std::map<std::string, const char*> types = {{"html", "text/html; charset=utf-8"},
+      {"js", "text/javascript"}, {"wasm", "application/wasm"}, {"css", "text/css"}, {"json", "application/json"},
+      {"svg", "image/svg+xml"}, {"png", "image/png"}, {"jpg", "image/jpeg"}, {"ico", "image/x-icon"},
+      {"ttf", "font/ttf"}, {"otf", "font/otf"}, {"txt", "text/plain; charset=utf-8"}};
+  auto it = types.find(toLower(ext));
+  return it != types.end() ? it->second : "application/octet-stream";
+}
+
+// web app: files from webRoot; Write.html for "/" and "/<id>" (page uses its own URL as whiteboard link)
+void SWBServer::serveStatic(SWBConn* c, HTTPRequest& req)
+{
+  bool head = req.method == "HEAD";
+  std::string relpath = req.path.substr(1);
+  bool bad = relpath.find('\0') != std::string::npos || relpath.find('\\') != std::string::npos;
+  for(const std::string& seg : splitStr<std::vector>(relpath.c_str(), '/'))
+    bad = bad || seg == "..";
+  FSPath file(opts.webRoot, relpath);
+  if(bad)
+    file = FSPath();
+  else if(relpath.empty() || isDirectory(file.c_str()))
+    file = FSPath(opts.webRoot, "Write.html");
+  else if(relpath.find('/') == std::string::npos && !file.exists()) {
+    // whiteboard link opened in browser (navigation requests accept text/html; not e.g. /favicon.ico)
+    bool page = req.accept.empty() || req.accept.find("text/html") != std::string::npos;
+    file = page ? FSPath(opts.webRoot, "Write.html") : FSPath();
+  }
+  std::string body;
+  if(file.isEmpty() || isDirectory(file.c_str()) || !readFile(&body, file.c_str())) {
+    log(2, "%s - \"%s\" 404", c->remote.c_str(), req.reqline.c_str());
+    sendHTTP(c, 404, "", "", req.keepAlive);
+    return;
+  }
+  // revalidate w/ ETag (mtime and size) so unchanged app files aren't downloaded again
+  std::string etag = fstring("\"%llx-%zx\"", (long long)getFileMTime(file), body.size());
+  bool notModified = req.ifNoneMatch == etag;
+  log(3, "%s - \"%s\" %d", c->remote.c_str(), req.reqline.c_str(), notModified ? 304 : 200);
+  std::string hdr = fstring("HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nCache-Control: no-cache\r\n"
+      "ETag: %s\r\nConnection: %s\r\n", notModified ? "304 Not Modified" : "200 OK", contentType(file.extension()),
+      notModified ? 0 : int(body.size()), etag.c_str(), req.keepAlive ? "keep-alive" : "close");
+  queue(c, hdr + c->corsHeaders + "\r\n" + (head || notModified ? std::string() : body));
+  if(!req.keepAlive)
+    closeConn(c, true);
+}
+
 void SWBServer::handleRequest(SWBConn* c, HTTPRequest& req)
 {
+  // CORS headers are added to all responses on connection until next request (poll reply may be deferred, but
+  //  subsequent requests aren't processed until it is sent)
+  c->corsHeaders = corsHeaders(opts, req);
+  if(req.method == "OPTIONS") {
+    // CORS preflight (needed for requests w/ Authorization header); no CORS headers if origin not allowed
+    log(3, "%s - \"%s\" (CORS preflight from %s)", c->remote.c_str(), req.reqline.c_str(), req.origin.c_str());
+    std::string hdrs = c->corsHeaders.empty() ? "" : "Access-Control-Allow-Methods: GET, POST\r\n"
+        "Access-Control-Allow-Headers: Authorization, Content-Type, X-Session\r\nAccess-Control-Max-Age: 600\r\n";
+    queue(c, httpHeader(204, 0, "text/plain", req.keepAlive) + c->corsHeaders + hdrs + "\r\n");
+    if(!req.keepAlive)
+      closeConn(c, true);
+    return;
+  }
   if(req.path.compare(0, 8, "/v1/swb/") == 0) {
     handleRelayHTTP(c, req);
+    return;
+  }
+  if(!opts.webRoot.empty() && req.path.compare(0, 4, "/v1/") != 0 && !req.path.empty() && req.path[0] == '/'
+      && (req.method == "GET" || req.method == "HEAD")) {
+    serveStatic(c, req);
     return;
   }
   int status = 400;
@@ -964,7 +1051,7 @@ void SWBServer::handleRequest(SWBConn* c, HTTPRequest& req)
 
 static std::string httpHeader(int status, size_t contentLength, const char* contentType, bool keepAlive)
 {
-  static const std::map<int, const char*> reasons = {{200, "OK"}, {400, "Bad Request"}, {401, "Unauthorized"},
+  static const std::map<int, const char*> reasons = {{200, "OK"}, {204, "No Content"}, {400, "Bad Request"}, {401, "Unauthorized"},
       {403, "Forbidden"}, {404, "Not Found"}, {405, "Method Not Allowed"}, {408, "Request Timeout"},
       {411, "Length Required"}, {413, "Payload Too Large"}, {431, "Request Header Fields Too Large"}};
   auto reason = reasons.find(status);
@@ -975,7 +1062,7 @@ static std::string httpHeader(int status, size_t contentLength, const char* cont
 
 void SWBServer::sendHTTP(SWBConn* c, int status, const std::string& body, const std::string& extraHeaders, bool keepAlive)
 {
-  queue(c, httpHeader(status, body.size(), "text/plain", keepAlive) + extraHeaders + "\r\n" + body);
+  queue(c, httpHeader(status, body.size(), "text/plain", keepAlive) + c->corsHeaders + extraHeaders + "\r\n" + body);
   if(!keepAlive)
     closeConn(c, true);
 }
@@ -1085,7 +1172,7 @@ void SWBServer::respondPoll(SWBPollClient* pc)
   else {
     size_t from = pc->pollOffset;
     size_t to = std::min(pc->wb->histSize, from + MAX_POLL_BYTES);
-    queue(c, httpHeader(200, to - from, "application/octet-stream", keepAlive) + "\r\n");
+    queue(c, httpHeader(200, to - from, "application/octet-stream", keepAlive) + c->corsHeaders + "\r\n");
     queueHistory(c, pc->wb, from, to);
     if(!keepAlive)
       closeConn(c, true);
@@ -1140,7 +1227,7 @@ std::string SWBServer::handleHTTP(const std::string& method, const std::string& 
     sessions[token] = Session{user, Clock::now()};
     *status = 200;
     *setCookie = "session=" + token;
-    return "";
+    return "<auth session='" + token + "'/>";  // for clients that can't read Set-Cookie (browser)
   }
   // verify session cookie for all other paths
   std::string sessionid;
@@ -1296,6 +1383,10 @@ static int serverUsage()
       "  --dump                 log all data received (w/ --log-level=debug)\n"
       "  --trust-proxy          running behind reverse proxy: take user name from X-Remote-User header and\n"
       "                         client address from X-Real-IP or X-Forwarded-For; use w/ --host=127.0.0.1\n"
+      "  --cors-origin=<origin> allow Write web app served from <origin> (e.g. https://example.com; space\n"
+      "                         separated list for multiple origins; * for any) to use this server\n"
+      "  --web-root=<dir>       serve Write web app (Write.html, Write.js, Write.wasm) from <dir>, so\n"
+      "                         whiteboard links (http://host:port/<id>) can be opened in a browser\n"
       "  --enable-test          accept test token (no /v1/createswb needed) and enable /v1/debug\n"
       "  --htpasswd-line=<user> read password from stdin and print htpasswd line (for reverse proxy w/\n"
       "                         HTTP Basic auth, e.g. nginx auth_basic) instead of running server\n"
@@ -1337,6 +1428,12 @@ int swbServerMain(int argc, char* argv[])
     else if(name == "dump") opts.dump = true;
     else if(name == "enable-test") opts.enableTest = true;
     else if(name == "trust-proxy") opts.trustProxy = true;
+    else if(name == "cors-origin") opts.corsOrigin = value;
+    else if(name == "web-root") {
+      opts.webRoot = value;
+      if(!FSPath(value, "Write.html").exists())
+        fprintf(stderr, "Warning: %s not found\n", FSPath(value, "Write.html").c_str());
+    }
     else if(name == "htpasswd-line") {
       if(value.empty() || value.find(':') != std::string::npos) return serverUsage();
       std::string pw = readPassword("Password: ");

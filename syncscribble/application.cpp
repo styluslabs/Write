@@ -12,8 +12,6 @@
 #include "windows/winhelper.h"
 #elif PLATFORM_OSX
 #include "macos/macoshelper.h"
-#elif PLATFORM_EMSCRIPTEN
-#include "wasm/wasmhelper.h"
 #endif
 
 #if PLATFORM_IOS
@@ -53,10 +51,9 @@
 // possible regression on iOS 18.4, so safer to stick w/ framebuffer fetch for now
 #define USE_NANOVG_VTEX (!PLATFORM_IOS)
 // note these are not marked as build dependencies (in application.d) since nanovg-2 is `isystem`
-// Only basic GLES3, at best, so use SW renderer
-#if PLATFORM_EMSCRIPTEN
-#define NANOVG_GLU_IMPLEMENTATION  // no nanovg_gl - utils only
-#elif PLATFORM_MOBILE
+// Emscripten: WebGL2 lacks GL features needed by nanovgXC, so SW renderer is always used (GL backend is built
+//  only because Painter references it)
+#if PLATFORM_MOBILE
 #define NANOVG_GLES3_IMPLEMENTATION
 #else
 #define NANOVG_GL3_IMPLEMENTATION
@@ -142,14 +139,6 @@ static void poolWait()
 
 #if PLATFORM_EMSCRIPTEN
 #include "emscripten.h"
-
-static void wasmMainLoop()
-{
-  if(Application::processEvents())
-    Application::layoutAndDraw();
-  if(!Application::runApplication)
-    emscripten_cancel_main_loop();
-}
 #endif
 
 static const char* getLocale()
@@ -184,8 +173,8 @@ void Application::setupUIScale(float horzdpi)
     horzdpi = sysdpi > 0 ? sysdpi*150/163 : 300;
   }
 #elif PLATFORM_EMSCRIPTEN
-  pxRatio = emscripten_get_device_pixel_ratio();
-  horzdpi = horzdpi > 0 && horzdpi < 700 ? horzdpi : pxRatio * 150;
+  // platform layer reports window size and input in device pixels, so pxRatio = 1; default to 150 dpi per CSS px
+  horzdpi = horzdpi > 0 && horzdpi < 700 ? horzdpi : emscripten_get_device_pixel_ratio() * 150;
 #else
   if(fbWidth != winWidth) {
     pxRatio = float(fbWidth)/float(winWidth);
@@ -312,7 +301,8 @@ bool appInit(int argc, char* argv[])
           fenceCfg, glRenderer ? glRenderer : "");
   }
   else {
-    int ncores = std::thread::hardware_concurrency();
+    // no threads in browser (would require SharedArrayBuffer, i.e. cross-origin isolation)
+    int ncores = PLATFORM_EMSCRIPTEN ? 1 : std::thread::hardware_concurrency();
     int nthreads = (ncores > 0 ? ncores : 4);  // hyperthreading incl on Windows
     if(nthreads > 1) {
       swThreadPool = new ThreadPool(nthreads);
@@ -390,13 +380,10 @@ int appMain(int argc, char* argv[])
   // `Write --automation <fifo>`: drive app w/ text commands (see automation.cpp)
   if(!ScribbleApp::app->automationPath.empty())
     Application::startAutomation(ScribbleApp::app->automationPath);
-#if PLATFORM_EMSCRIPTEN
-  emscripten_set_main_loop(wasmMainLoop, 0, 1);  // fps = 0 (use default), infinite loop = 1 (never returns)
-#else
+  // on Emscripten (JSPI), processEvents() suspends when idle, returning to browser
   while(Application::processEvents()) {
     Application::layoutAndDraw();
   }
-#endif
   appShutdown();
   return 0;
 }

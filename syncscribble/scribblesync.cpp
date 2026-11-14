@@ -990,8 +990,17 @@ void ScribbleSync::httpFinishSends(double timeout)
       std::unique_lock<std::mutex> lock(httpQueue->mutex);
       auto& rs = httpQueue->responses;
       auto isSend = [](const std::pair<HttpReqType, HttpResponse>& r){ return r.first == HTTP_SEND; };
+#if PLATFORM_EMSCRIPTEN
+      // responses are delivered from browser event loop, so suspend (JSPI) while waiting
+      while(!std::any_of(rs.begin(), rs.end(), isSend)) {
+        if(std::chrono::steady_clock::now() >= deadline)
+          return;  // timeout
+        platformSleep(10);
+      }
+#else
       if(!httpQueue->cond.wait_until(lock, deadline, [&](){ return std::any_of(rs.begin(), rs.end(), isSend); }))
         return;  // timeout
+#endif
       auto it = std::find_if(rs.begin(), rs.end(), isSend);
       resp = std::move(it->second);
       rs.erase(it);
