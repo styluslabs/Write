@@ -176,8 +176,8 @@ DMGRES = ../scribbleres/macos/Readme.txt
 
 include Makefile.mac
 
-else ifneq ($(XPC_FLAGS),)
-# iOS (XPC_FLAGS seems to be defined on macOS)
+else ifneq ($(XPC_FLAGS)$(IOS),)
+# iOS (XPC_FLAGS seems to be defined on macOS; pass IOS=1 to cross build on Linux - see Makefile.ios)
 
 # platform layer: ugui/platforms/iosApp.mm (app's main() and UIApplication delegate)
 SOURCES += ios/ioshelper.m ../ugui/platforms/iosApp.mm

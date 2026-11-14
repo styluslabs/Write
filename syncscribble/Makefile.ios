@@ -3,10 +3,47 @@
 # debugging can be accomplished in Xcode by connecting to running app
 # ref: https://vojtastavik.com/2018/10/15/building-ios-app-without-xcode/
 
+UNAME_S := $(shell uname -s)
+SIM ?= 0
+IOS_MIN ?= 11.0
+
+ifneq ($(UNAME_S), Darwin)
+# Linux cross build: Debian clang + lld, iPhoneOS.sdk extracted from Xcode .xip w/ ios/extract_ios_sdk.py
+#  (IOS_SDK dir contains iPhoneOS.sdk and clang-rt -> .../usr/lib/clang/<ver>/lib/darwin from Xcode),
+#  zsign for signing, ideviceinstaller for `make deploy`.  No ibtool or actool: XIB is replaced by UILaunchScreen
+#  (iOS 14+) in Info.plist and app icons are copied as loose PNGs (CFBundleIconFiles) instead of Assets.car
+ifneq ($(SIM), 0)
+  $(error iOS simulator build not supported on Linux)
+endif
+IOS_SDK ?= $(HOME)/ios-sdk
+SDKROOT = $(IOS_SDK)/iPhoneOS.sdk
+TARGET_ARCH = arm64-apple-ios$(IOS_MIN)
+CLANG = clang++ -target $(TARGET_ARCH) -isysroot $(SDKROOT)
+CROSS_LDFLAGS = -fuse-ld=lld $(IOS_SDK)/clang-rt/libclang_rt.ios.a
+AR = llvm-ar rcs
+ARFLAGS =
+STRIP = llvm-strip
+ICONPNGS := $(filter-out %1024x1024.png,$(wildcard $(XCASSETS)/*.appiconset/*.png))
+IOSRES += $(ICONPNGS)
+XCASSETS =
+XIB =
+PLIST_FIXUP = perl -0777 -pi -e 's{<key>UILaunchStoryboardName</key>\s*<string>[^<]*</string>}{<key>UILaunchScreen</key>\n\t<dict/>}' $(TGTDIR)/Info.plist
+# signing: IOS_SIGN_KEY (.p12, or PEM private key w/ IOS_SIGN_CERT = .cer/.pem), IOS_SIGN_PASS (if needed), and
+#  PROVISIONING_PROFILE - set in $(IOS_SIGNING)/signing.mk (read if present) or on make command line; ad-hoc
+#  signature (won't install on device) if IOS_SIGN_KEY not set
+IOS_SIGNING ?= $(HOME)/ios-signing
+-include $(IOS_SIGNING)/signing.mk
+ifneq ($(IOS_SIGN_KEY),)
+  SIGN = zsign -q -f -k $(IOS_SIGN_KEY) $(if $(IOS_SIGN_CERT),-c $(IOS_SIGN_CERT)) \
+    $(if $(IOS_SIGN_PASS),-p '$(IOS_SIGN_PASS)') -m $(PROVISIONING_PROFILE) -e $(XCENT) $(TGTDIR)
+else
+  SIGN = @echo "*** IOS_SIGN_KEY not set - ad-hoc signing only" && zsign -q -f -a $(TGTDIR)
+endif
+
+else
 # run `xcrun --sdk iphoneos --find clang` to get path to clang
 # run `xcrun --sdk iphoneos --show-sdk-path` to get arg for -isysroot
 XCODE = /Applications/Xcode.app/Contents/Developer
-SIM ?= 0
 ifneq ($(SIM), 0)
   SDKROOT = $(XCODE)/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk
   TARGET_ARCH = x86_64-apple-ios11.0-simulator
@@ -29,6 +66,9 @@ AR = $(XCODE)/Toolchains/XcodeDefault.xctoolchain/usr/bin/libtool -static -arch_
 ARFLAGS =
 # strip (removes debug symbols from exe) - what Xcode uses and smaller result than '-Xlinker -S' (or -s)
 STRIP = $(XCODE)/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip
+SIGN = cp $(PROVISIONING_PROFILE) $(TGTDIR)/embedded.mobileprovision && \
+  $(CODESIGN) --generate-entitlement-der --entitlements $(XCENT) $(TGTDIR)
+endif
 
 CFLAGS = -MMD -Wall -Wshadow
 CXX = $(CLANG)
@@ -40,7 +80,7 @@ MFLAGS = -fobjc-arc
 MMC = $(CLANG) -x objective-c++
 # linker
 LD = $(CXX)
-LDFLAGS =
+LDFLAGS = $(CROSS_LDFLAGS)
 
 DEBUG ?= 1
 ifneq ($(DEBUG), 0)
@@ -59,6 +99,11 @@ endif
 
 ifneq ($(SIM), 0)
   BUILDDIR := Sim$(BUILDDIR)
+endif
+
+# keep Linux cross build separate from native Linux build in Debug/, Release/
+ifneq ($(UNAME_S), Darwin)
+  BUILDDIR := Ios$(BUILDDIR)
 endif
 
 SANITIZE ?= 0
@@ -103,7 +148,7 @@ NIB=$(XIBBASE:%=$(OBJDIR)/%.nib)
 # sort removes duplicates (which cause make error)
 BUILDDIRS=$(sort $(dir $(OBJ))) $(TGTDIR)
 
-.PHONY: all ipa clean distclean
+.PHONY: all ipa deploy clean distclean
 
 all: $(TGT)
 
@@ -132,13 +177,21 @@ $(TGT): $(OBJ) $(IOSRES) $(NIB)
 	test $(DEBUG) -ne 0 || $(STRIP) $@
 	cp -R $(IOSRES) $(TGTDIR)
 	$(PLISTENV) perl -pe 's{\$$\((\w+)\)}{$$ENV{$$1} // $$&}ge' < $(INFOPLIST) > $(TGTDIR)/Info.plist
+	$(PLIST_FIXUP)
 	test -z "$(XCASSETS)" || $(ACTOOL) --export-dependency-info $(OBJDIR)/assetcatalog_dependencies --output-partial-info-plist $(OBJDIR)/assetcatalog_info.plist --compile $(TGTDIR) $(XCASSETS)
 	test -z "$(NIB)" || cp -R $(NIB) $(TGTDIR)
-	cp $(PROVISIONING_PROFILE) $(TGTDIR)/embedded.mobileprovision
-	$(CODESIGN) --generate-entitlement-der --entitlements $(XCENT) $(TGTDIR)
+	$(SIGN)
 
 $(IPA): $(TGT)
 	(cd $(BUILDDIR) && zip -rXm $(TARGET).ipa Payload)
+
+# install dev build on connected device (Linux; on macOS use ios-deploy)
+DEVIPA = $(BUILDDIR)/deploy/$(TARGET).ipa
+deploy: $(TGT)
+	rm -rf $(BUILDDIR)/deploy && mkdir -p $(BUILDDIR)/deploy/Payload
+	cp -R $(TGTDIR) $(BUILDDIR)/deploy/Payload/
+	(cd $(BUILDDIR)/deploy && zip -qrX $(TARGET).ipa Payload)
+	ideviceinstaller install $(DEVIPA)
 
 $(LIBTGT): $(OBJ)
 	$(AR) -o $@ $^ $(ARFLAGS)
