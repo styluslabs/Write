@@ -110,6 +110,7 @@ private:
   std::string relayId;  // session id; empty if no session
   std::shared_ptr<HttpQueue> httpQueue;
   uint64_t startReq = 0, pollReq = 0, sendReq = 0;  // nonzero while request is pending
+  uint64_t unloadEndReq = 0;  // browser: /end request sent if page is unloaded while session is active
   std::string sendBuf;  // data to be sent
   std::string sendInFlight;  // data being sent (resent w/ same seq if request fails)
   long long sendSeq = 0;
@@ -119,6 +120,7 @@ private:
   void httpConnect();
   void httpRequest(HttpReqType type, HttpRequest req);
   void httpStart();
+  void httpEndOnUnload(bool enable);
   void httpPoll(bool wait);
   void httpFlushSend();
   void onHttpResponse(HttpReqType type, HttpResponse& resp);

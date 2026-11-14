@@ -253,6 +253,7 @@ void ScribbleSync::disconnectSync()
     if(startReq) client->cancel(startReq);
     if(pollReq) client->cancel(pollReq);
     // pending send is not cancelled so data isn't lost (unless server sees /end first)
+    httpEndOnUnload(false);
     if(!relayId.empty()) {
       HttpRequest req(relayBase + "/v1/swb/end?id=" + relayId);
       req.user = authUser;
@@ -1057,6 +1058,23 @@ void ScribbleSync::httpStart()
   httpRequest(HTTP_START, std::move(req));
 }
 
+// browser: leave whiteboard (/end) if page is closed or reloaded (otherwise other users see us until server's
+//  poll timeout); app code can't run during unload, so request is registered w/ fetch backend while session exists
+void ScribbleSync::httpEndOnUnload(bool enable)
+{
+#if PLATFORM_EMSCRIPTEN
+  httpCancelOnUnload(unloadEndReq);
+  unloadEndReq = 0;
+  if(enable && !relayId.empty()) {
+    HttpRequest req(relayBase + "/v1/swb/end?id=" + relayId);
+    req.user = authUser;
+    req.password = authPass;
+    req.method = "POST";
+    unloadEndReq = httpRequestOnUnload(req);
+  }
+#endif
+}
+
 // if wait is false, server responds immediately even if no new data (used to check connection)
 void ScribbleSync::httpPoll(bool wait)
 {
@@ -1095,6 +1113,7 @@ void ScribbleSync::onHttpResponse(HttpReqType type, HttpResponse& resp)
   }
   if(type == HTTP_START) {
     relayId.assign(resp.body.begin(), resp.body.end());
+    httpEndOnUnload(true);
     sendSeq = 0;
     sendBuf.clear();
     sendInFlight.clear();
@@ -1153,6 +1172,7 @@ void ScribbleSync::onHttpError(HttpReqType type, const HttpResponse& resp)
     // session expired (e.g. disconnected for too long) - start new session; reconnect logic (see processItem())
     //  resends everything after rcvdPos, so unsent data can be discarded
     if(relayId.empty()) return;  // already handled
+    httpEndOnUnload(false);
     relayId.clear();
     sendBuf.clear();
     sendInFlight.clear();
