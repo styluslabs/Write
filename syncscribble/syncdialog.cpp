@@ -138,8 +138,7 @@ SyncInfoDialog::SyncInfoDialog(const ScribbleSync* sync) : Dialog(createDialogNo
 
   Widget* dialogBody = selectFirst(".body-container");
   if(!sync->shareLink.empty()) {
-    TextBox* hostLabel = new TextBox(createTextNode(_("Hosted on this device - others on the same network can join\n"
-        "using Open Whiteboard with this ID. Closing this whiteboard disconnects everyone.")));
+    TextBox* hostLabel = new TextBox(createTextNode(_("Self-hosted whiteboard")));
     hostLabel->node->setAttribute("box-anchor", "left");
     dialogBody->addWidget(hostLabel);
   }

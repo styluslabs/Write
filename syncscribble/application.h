@@ -36,11 +36,14 @@ public:
   // debug hook called after each frame is drawn, before present (see scribbletest/redrawcheck.cpp); for GL,
   //  the frame has been blitted to the window framebuffer, which is bound
   static void (*frameHook)(const Rect& dirty);
-  // UI automation (tests): if set, poll() is called after each layout (see ugui/uidriver.h)
+  // UI automation (tests): if set, uiDriverPoll(uiDriver) is called after each layout (see ugui/uidriver.h);
+  //  hooks are set by automation.cpp, which is linked only into WriteTest and dev builds (see Makefile AUTOMATION)
   static UiDriver* uiDriver;
-  // drive app w/ text commands (see UiDriver::queueCommand) read from path (e.g. a FIFO, reopened after each
-  //  writer closes it) or stdin if path is "-"; replies are written to path + ".out" (stdout for stdin)
+  static void (*uiDriverPoll)(UiDriver* d);
+  // drive app w/ text commands read from path (or stdin if "-"; see automation.cpp) - returns false if
+  //  automation is not included in this build
   static bool startAutomation(const std::string& path);
+  static bool (*startAutomationFn)(const std::string& path);
   // NVG image flags (e.g. NVG_IMAGE_SRGB) of offscreen framebuffer used for GL rendering
   static int glFramebufferFlags();
 

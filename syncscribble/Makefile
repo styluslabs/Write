@@ -43,7 +43,6 @@ SOURCES += \
   ../ugui/widgets.cpp \
   ../ugui/textedit.cpp \
   ../ugui/colorwidgets.cpp \
-  ../ugui/uidriver.cpp \
   ../ugui/platforms/http_unet.cpp
 
 SOURCES += \
@@ -84,7 +83,23 @@ GITCOUNT := $(shell git rev-list --count HEAD || wsl git rev-list --count HEAD)
 APPVERSION := $(MAJORVER).$(MINORVER).$(GITCOUNT)
 # defines for pugixml config instead of forking whole repo; use external STB libs in nanovg
 DEFS = PUGIXML_NO_XPATH PUGIXML_NO_EXCEPTIONS
-DEFS += SCRIBBLE_REV_NUMBER="$(GITREV)"
+# git rev is only passed to the source that uses it (see end of file)
+REV_DEFS = SCRIBBLE_REV_NUMBER="$(GITREV)"
+OBJEXT = o
+
+# release packages: no UI automation, and source w/ version info is always rebuilt (FORCE), which also forces
+#  relink, so an executable from a dev build (w/ automation, or w/ old git rev) is never packaged
+PACKAGE_GOALS = tgz real_tgz zip msi dmg ipa
+ifneq ($(filter $(PACKAGE_GOALS),$(MAKECMDGOALS)),)
+  PACKAGE_BUILD = 1
+  AUTOMATION = 0
+endif
+# UI automation (`Write --automation`, see automation.cpp): desktop dev builds only (pass AUTOMATION=0 to
+#  exclude); always included in WriteTest
+AUTOMATION ?= 1
+AUTOMATION_SOURCES = ../ugui/uidriver.cpp automation.cpp
+# fails if packaged executable includes UI automation (string from automation.cpp)
+PACKAGE_CHECK = if grep -q "UI automation: reading commands" $(TGT); then echo "error: $(TGT) includes UI automation"; exit 1; fi
 
 
 ifeq ($(OS),Windows_NT)
@@ -96,6 +111,10 @@ SOURCES += \
   windows/wintab/Utils.c \
   ../ugui/platforms/winmain.cpp \
   ../nanovgXC/glad/glad.c
+ifneq ($(AUTOMATION), 0)
+  SOURCES += $(AUTOMATION_SOURCES)
+endif
+OBJEXT = obj
 
 RESOURCES = windows/resources.rc
 DEFS += SVGGUI_NO_SDL SCRIBBLE_TEST_PATH="\"$(CURDIR)/../scribbletest\""
@@ -136,6 +155,9 @@ else ifneq ($(MACOS),)
 
 APPDIR = Write.app
 SOURCES += macos/macoshelper.m ../nanovgXC/glad/glad.c
+ifneq ($(AUTOMATION), 0)
+  SOURCES += $(AUTOMATION_SOURCES)
+endif
 INCSYS += ../SDL/include
 DEFS += SCRIBBLE_TEST_PATH='"$(CURDIR)/../scribbletest"'
 LIBS = ../SDL/MacRelease/libSDL2.a -liconv
@@ -217,7 +239,7 @@ include $(CLEAR_VARS)
 
 # platform layer: ugui/platforms/androidApp.cpp + ugui/platforms/android/ (Java)
 SOURCES += android/androidhelper.cpp ../ugui/platforms/androidApp.cpp
-DEFS += SVGGUI_NO_SDL
+DEFS += SVGGUI_NO_SDL $(REV_DEFS)
 
 # loaded by com.styluslabs.writeqt.MainActivity
 LOCAL_MODULE := main
@@ -254,6 +276,9 @@ SOURCES += ../ugui/platforms/http_curl.cpp
 DEFS += HTTP_CURL_DLOPEN PLATFORM_HTTP_BACKEND
 # platform layer (provides main()) - only linked into Write, not WriteTest
 MAIN_SOURCES = ../ugui/platforms/linuxmain.cpp
+ifneq ($(AUTOMATION), 0)
+  MAIN_SOURCES += $(AUTOMATION_SOURCES)
+endif
 # `make test` builds and runs WriteTest, which runs tests using a headless platform layer
 TEST_TARGET = WriteTest
 TEST_SOURCES = \
@@ -263,7 +288,8 @@ TEST_SOURCES = \
   ../scribbletest/headless.cpp \
   ../scribbletest/redrawcheck.cpp \
   ../scribbletest/swbservertest.cpp \
-  ../scribbletest/testmain.cpp
+  ../scribbletest/testmain.cpp \
+  $(AUTOMATION_SOURCES)
 TEST_LIBS = -lEGL
 # `make redrawcheck` builds WriteRedrawCheck: Write w/ redraw check (compares each partial SW redraw to a full
 #  redraw - see scribbletest/redrawcheck.cpp)
@@ -320,4 +346,14 @@ include Makefile.unix
 # rm -r /usr/share/locale/*
 # rm -r /usr/share/doc/*
 
+endif
+
+# Android (ndk-build) sets these defines globally instead
+ifneq ($(OBJDIR),)
+$(OBJDIR)/scribbleapp.$(OBJEXT): DEFS += $(REV_DEFS)
+ifneq ($(PACKAGE_BUILD),)
+$(OBJDIR)/scribbleapp.$(OBJEXT): FORCE
+endif
+.PHONY: FORCE
+FORCE:
 endif

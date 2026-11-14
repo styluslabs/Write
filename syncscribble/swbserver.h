@@ -155,6 +155,4 @@ std::string swbHtpasswdLine(const std::string& user, const std::string& password
 std::string apr1Crypt(const std::string& pw, std::string salt = "");
 
 // `Write --server ...` entry point; returns exit code
-int swbServerMain(int argc, char* argv[]);
-// returns true if argv contains --server
-bool swbServerRequested(int argc, char* argv[]);
+int swbServerMain(int argc, char* argv[]);  // argv[1] must be --server

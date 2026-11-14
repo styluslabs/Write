@@ -150,6 +150,7 @@ public:
   std::string runType;
   std::string argDoc;
   std::string outDoc;
+  std::string automationPath;
   bool isWindowActive = true;
   bool hasI18n = false;
   static Uint32 scribbleSDLEvent;

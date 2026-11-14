@@ -1304,21 +1304,11 @@ static int serverUsage()
   return 1;
 }
 
-bool swbServerRequested(int argc, char* argv[])
-{
-  for(int ii = 1; ii < argc; ++ii) {
-    if(strcmp(argv[ii], "--server") == 0)
-      return true;
-  }
-  return false;
-}
-
 int swbServerMain(int argc, char* argv[])
 {
   SWBServerOptions opts;
-  for(int ii = 1; ii < argc; ++ii) {
+  for(int ii = 2; ii < argc; ++ii) {  // argv[1] is --server
     std::string arg = argv[ii];
-    if(arg == "--server") continue;
     if(arg.compare(0, 2, "--") != 0)
       return serverUsage();
     std::string name = arg.substr(2), value;

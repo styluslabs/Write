@@ -75,6 +75,7 @@ $(TGT): $(OBJ) $(DISTRES)
 	cp $(INFOPLIST) $(TGTDIR)
 
 $(DMG): $(TGT)
+	$(PACKAGE_CHECK)
 	mkdir $(BUILDDIR)/dist
 	cp -R $(BUILDDIR)/$(APPDIR) $(BUILDDIR)/dist
 	cp -R $(DMGRES) $(BUILDDIR)/dist

@@ -170,6 +170,8 @@ ScribbleApp::ScribbleApp(int argc, char* argv[])
           finish();  // exit immediately
         else if(arg == "out" && ii+1 < argc)
           outDoc = argv[++ii];
+        else if(arg == "automation" && ii+1 < argc)
+          automationPath = argv[++ii];
         else if(ii+1 < argc && argv[ii+1][0] != '-') {  // support space instead of '=' between arg and value
           disableConfigSave = true;
           cfg->setConfigValue(arg.data(), argv[++ii]);

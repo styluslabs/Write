@@ -3,11 +3,6 @@
 #include "usvg/svgwriter.h"
 #include "usvg/svgparser.h"
 #include "ugui/svggui.h"
-#include "ugui/uidriver.h"
-#include <thread>
-#include <chrono>
-#include <memory>
-#include <cstring>
 #include "scribbleapp.h"
 #include "scribbleview.h"
 #include "scribbleconfig.h"
@@ -249,9 +244,6 @@ static SvgPainter* boundsCalc = NULL;
 bool appInit(int argc, char* argv[])
 {
   Application::runApplication = true;
-#if PLATFORM_WIN
-  winLogToConsole = attachParentConsole();  // printing to old console is slow, but Powershell is fine
-#endif
   unet_init();
   if(argc > 0)
     Application::appDir = canonicalPath(FSPath(argv[0]).parentPath());
@@ -385,29 +377,19 @@ void appShutdown()
 
 int appMain(int argc, char* argv[])
 {
-#if !PLATFORM_MOBILE && !PLATFORM_EMSCRIPTEN
-  // `Write --server`: run whiteboard server instead of app (no GUI or display needed)
-  if(swbServerRequested(argc, argv)) {
 #if PLATFORM_WIN
-    winLogToConsole = attachParentConsole();
+  winLogToConsole = attachParentConsole();
 #endif
+#if !PLATFORM_MOBILE && !PLATFORM_EMSCRIPTEN
+  // `Write --server ...`: run whiteboard server instead of app (no GUI or display needed)
+  if(argc > 1 && strcmp(argv[1], "--server") == 0)
     return swbServerMain(argc, argv);
-  }
 #endif
-  // `Write --automation <fifo>`: drive app w/ text commands (see UiDriver) - removed from args
-  std::string automation;
-  for(int ii = 1; ii + 1 < argc; ++ii) {
-    if(strcmp(argv[ii], "--automation") == 0) {
-      automation = argv[ii + 1];
-      for(int jj = ii; jj + 2 <= argc; ++jj) argv[jj] = argv[jj + 2];
-      argc -= 2;
-      break;
-    }
-  }
   if(!appInit(argc, argv))
     return -1;
-  if(!automation.empty())
-    Application::startAutomation(automation);
+  // `Write --automation <fifo>`: drive app w/ text commands (see automation.cpp)
+  if(!ScribbleApp::app->automationPath.empty())
+    Application::startAutomation(ScribbleApp::app->automationPath);
 #if PLATFORM_EMSCRIPTEN
   emscripten_set_main_loop(wasmMainLoop, 0, 1);  // fps = 0 (use default), infinite loop = 1 (never returns)
 #else
@@ -419,53 +401,17 @@ int appMain(int argc, char* argv[])
   return 0;
 }
 
-// UI automation
+// UI automation: implementation in automation.cpp (only linked into some builds), which sets these hooks
+
+bool (*Application::startAutomationFn)(const std::string& path) = NULL;
+void (*Application::uiDriverPoll)(UiDriver* d) = NULL;
 
 bool Application::startAutomation(const std::string& path)
 {
-#if PLATFORM_MOBILE || PLATFORM_EMSCRIPTEN
+  if(startAutomationFn)
+    return startAutomationFn(path);
+  PLATFORM_LOG("UI automation (--automation) is not included in this build\n");
   return false;
-#else
-  static std::unique_ptr<UiDriver> driver;
-  static FILE* replyOut = NULL;
-  if(driver) return false;  // already started
-  if(path == "-")
-    replyOut = stdout;
-  else {
-    replyOut = fopen((path + ".out").c_str(), "w");
-    if(!replyOut) {
-      PLATFORM_LOG("Unable to open %s.out\n", path.c_str());
-      return false;
-    }
-  }
-  driver.reset(new UiDriver(gui));
-  driver->modalTimeout = 0;  // dialogs stay open until commands close them
-  driver->replyFn = [](const std::string& r){ fputs(r.c_str(), replyOut); fflush(replyOut); };
-  driver->onQuit = [](){ finish(); };
-  uiDriver = driver.get();
-  UiDriver* d = driver.get();
-  // reader thread blocks in open/read, so it is detached (process exit ends it)
-  std::thread([d, path](){
-    for(;;) {
-      FILE* in = path == "-" ? stdin : fopen(path.c_str(), "r");  // blocks until a writer opens FIFO
-      if(!in) return;
-      char buf[4096];
-      while(fgets(buf, sizeof(buf), in))
-        d->queueCommand(buf);
-      if(in == stdin) return;
-      fclose(in);
-    }
-  }).detach();
-  // event loop may not wake w/o input events (on real platforms), so wake periodically for wait/sleep commands
-  std::thread([](){
-    for(;;) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      PLATFORM_WakeEventLoop();
-    }
-  }).detach();
-  PLATFORM_LOG("UI automation: reading commands from %s\n", path == "-" ? "stdin" : path.c_str());
-  return true;
-#endif
 }
 
 // debug hook called after each frame is drawn (before present) - see scribbletest/redrawcheck.cpp
@@ -503,8 +449,8 @@ void Application::layoutAndDraw()
       frameHook(lastDirty);
     platformPresent();
   }
-  if(uiDriver)
-    uiDriver->poll();
+  if(uiDriver && uiDriverPoll)
+    uiDriverPoll(uiDriver);
 }
 
 bool Application::layoutAndDraw(int w, int h)
