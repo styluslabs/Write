@@ -29,21 +29,6 @@ ScribbleArea::ScribbleArea() : ScribbleView()
   scribbleInput->enableHoverEvents = true;
 }
 
-// render SVG string to Image
-static Image svgToImage(const SvgDocument* doc, Dim scale = 1)
-{
-  int w = std::ceil(doc->width().px()*scale), h = std::ceil(doc->height().px()*scale);
-  Image img(w, h);
-  Painter painter(Painter::PAINT_SW | Painter::NO_TEXT, &img);
-  painter.setBackgroundColor(::Color::INVALID_COLOR);  // skip BG since image already inited to zeros
-  painter.beginFrame();
-  painter.translate(0, h);
-  painter.scale(1, -1);
-  SvgPainter(&painter).drawNode(doc);  //, dirty);
-  painter.endFrame();
-  return img;
-}
-
 // Members that are affected by config values get set here.  Right now, these are just config values that are
 //  accessed very frequently and so "cached"
 void ScribbleArea::loadConfig(ScribbleConfig* _cfg)
@@ -92,7 +77,8 @@ void ScribbleArea::loadConfig(ScribbleConfig* _cfg)
     eraserpaint.endFrame();
     app->eraseCursor = platformCreateCursor(&eraserimg, int(eraserradius + 1.5), int(eraserradius + 1.5));
 
-    Image panimg = svgToImage(SvgGui::useFile(":/icons/ic_menu_pan.svg"));
+    const SvgDocument* pandoc = SvgGui::useFile(":/icons/ic_menu_pan.svg");
+    Image panimg = SvgPainter::toImage(pandoc, std::ceil(pandoc->width().px()), std::ceil(pandoc->height().px()));
     app->panCursor = platformCreateCursor(&panimg, panimg.width/2, panimg.height/2);
 
     unsigned char blankdata[4] = {0,0,0,0};

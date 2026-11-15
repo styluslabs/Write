@@ -229,6 +229,19 @@ static void setPrevFrameFence()
 static Painter* boundsPainter = NULL;
 static SvgPainter* boundsCalc = NULL;
 
+// window icon for taskbar, rendered from same SVG as title button icon (in MainWindow)
+static void setWindowIcon()
+{
+#if PLATFORM_LINUX
+  const SvgDocument* doc = SvgGui::useFile(":/icons/write_icon_flat.svg");
+  if(!doc) { return; }
+  std::vector<Image> icons;
+  for(int size : {32, 64, 128})
+    icons.push_back(SvgPainter::toImage(doc, size, size));
+  platformSetWindowIcon(icons.data(), int(icons.size()));
+#endif
+}
+
 // appMain() is split into appInit() and appShutdown() so that WriteTest can run tests in place of the event loop
 bool appInit(int argc, char* argv[])
 {
@@ -315,6 +328,7 @@ bool appInit(int argc, char* argv[])
   SvgDocument::sharedBoundsCalc = boundsCalc;
 
   setupResources();  // load fonts, icons, etc.
+  setWindowIcon();
   const char* cfgLocale = ScribbleApp::cfg->String("locale", "");
   scribbleApp->hasI18n = setupI18n(cfgLocale[0] ? cfgLocale : getLocale());
   SvgGui* svgGui = new SvgGui();

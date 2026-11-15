@@ -6,6 +6,7 @@ Name=Write
 Comment=A word processor for handwriting
 Exec=/opt/Write/Write
 Icon=Write144x144
+StartupWMClass=Write
 MimeType=image/svg+xml;
 Terminal=false
 Categories=Education
