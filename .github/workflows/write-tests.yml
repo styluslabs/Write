@@ -24,7 +24,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libx11-dev libxi-dev libxext-dev libxcursor-dev libxrandr-dev libgl-dev libopengl-dev libglx-dev libegl-dev libegl-mesa0 libgl1-mesa-dri
+        sudo apt-get install -y libx11-dev libxi-dev libxext-dev libxcursor-dev libxrandr-dev libgl-dev libopengl-dev libglx-dev libegl-dev libegl-mesa0 libgl1-mesa-dri libcurl4-openssl-dev
     # ASan can fail w/ high mmap randomization used by recent runner kernels
     - name: Reduce ASLR entropy for ASan
       run: sudo sysctl vm.mmap_rnd_bits=28
