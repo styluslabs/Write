@@ -1,43 +1,36 @@
 name: Write CI
 
+# Release builds for Linux (tgz), Windows (zip) and Android (APK), uploaded as artifacts
+# - no SDL: all platforms use ugui platform layers (ugui/platforms/)
+# - fetch-depth: 0 since package version / filename uses commit count (GITCOUNT in Makefile)
+
 on:
   push:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
+  workflow_dispatch:
 
 jobs:
   linux-build:
     runs-on: ubuntu-22.04
     steps:
-    - name: Checkout
-      run: git clone --recurse-submodules https://github.com/styluslabs/Write
-    #- run: git clone --recurse-submodules https://github.com/styluslabs/Write
-    # can't switch branch of submodule from actions/checkout: https://github.com/actions/checkout/issues/1815
-    #- run: git switch write-linux
-    #  working-directory: Write/SDL
-    #- uses: actions/checkout@v4
-    #  with:
-    #    submodules: recursive
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Checkout submodules
+      run: git submodule update --init stb pugixml miniz nanovgXC ulib usvg ugui
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
-    - name: Build SDL
-      working-directory: SDL
       run: |
-        git switch write-linux
-        make -f ../scribbleres/SDL-Makefile.unix DEBUG=0
-        make -f ../scribbleres/SDL-Makefile.unix DEBUG=1
-        ln -s ../include Release/include
-    # test doesn't work because SDL init fails due to no video device
-    #- run: make DEBUG=1 SANITIZE=0 USE_SYSTEM_SDL=0
-    #  working-directory: syncscribble
-    #- run: ./Debug/Write --glRender=0 --test
-    #  working-directory: syncscribble
-    - run: make DEBUG=0 USE_SYSTEM_SDL=0 real_tgz
+        sudo apt-get update
+        sudo apt-get install -y libx11-dev libxi-dev libxext-dev libxcursor-dev libxrandr-dev libgl-dev libopengl-dev libglx-dev libcurl4-openssl-dev
+    - name: Build Write
       working-directory: syncscribble
+      run: make -j$(nproc) DEBUG=0 real_tgz
     - name: Setup tmate session
       uses: mxschmitt/action-tmate@v3
       if: ${{ failure() }}
+      timeout-minutes: 15
     - name: Upload release tgz
       uses: actions/upload-artifact@v4
       with:
@@ -47,37 +40,38 @@ jobs:
   windows-build:
     runs-on: windows-latest
     steps:
-    - name: Checkout
-      run: git clone --recurse-submodules https://github.com/styluslabs/Write
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Checkout submodules
+      run: git submodule update --init stb pugixml miniz nanovgXC ulib usvg ugui
     - name: Download make.exe
       run: curl -L -o make.exe https://github.com/styluslabs/maps/releases/download/alpha-1/make.exe
     - name: MSVC command prompt
       uses: ilammy/msvc-dev-cmd@v1
-    - name: Build SDL
-      shell: cmd
-      working-directory: Write/SDL
-      run: |
-        git switch write-win
-        ..\..\make.exe -f ..\scribbleres\SDL-Makefile.msvc SHELL=cmd.exe
     - name: Build Write
       shell: cmd
-      working-directory: Write/syncscribble
-      run: ..\..\make.exe SHELL=cmd.exe DEBUG=0 zip
+      working-directory: syncscribble
+      run: ..\make.exe SHELL=cmd.exe DEBUG=0 zip
     # SSH session to debug workflow
     - name: Setup tmate session
       uses: mxschmitt/action-tmate@v3
       if: ${{ failure() }}
+      timeout-minutes: 15
     - name: Upload release ZIP
       uses: actions/upload-artifact@v4
       with:
         name: release-win64-zip
-        path: Write/syncscribble/Release/*.zip
+        path: syncscribble/Release/*.zip
 
   android-build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      run: git clone --recurse-submodules https://github.com/styluslabs/Write
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Checkout submodules
+      run: git submodule update --init stb pugixml miniz nanovgXC ulib usvg ugui
     - name: Setup JDK
       uses: actions/setup-java@v4
       with:
@@ -85,12 +79,13 @@ jobs:
         java-version: '17'
     - name: Gradle Assemble
       run: ./gww assembleRelease
-      working-directory: Write/syncscribble/android
+      working-directory: syncscribble/android
     - name: Setup tmate session
       uses: mxschmitt/action-tmate@v3
       if: ${{ failure() }}
+      timeout-minutes: 15
     - name: Upload release APK
       uses: actions/upload-artifact@v4
       with:
         name: app-release-apk
-        path: Write/syncscribble/android/app/build/outputs/apk/release/app-release.apk
+        path: syncscribble/android/app/build/outputs/apk/release/app-release.apk
