@@ -27,6 +27,9 @@ public:
   Document::loadresult_t openDocument(IOStream* strm, bool delayload = true);
   bool saveDocument(const char* filename, Document::saveflags_t flags = Document::SAVE_NORMAL);
   bool saveDocument(IOStream* strm = NULL, Document::saveflags_t flags = Document::SAVE_NORMAL);
+  // state of document file relative to when we last loaded or saved it (see checkFile())
+  enum FileState { FILE_UNCHANGED, FILE_MODIFIED, FILE_DELETED };
+  FileState checkFile();
   void resetDocPrefs();
   // authUser, authPass: HTTP Basic auth credentials for relay (see ScribbleSync::authUser)
   void openSharedDoc(const char* server, const pugi::xml_node& xml, bool master,
@@ -108,7 +111,12 @@ public:
   Document* document = NULL;
   UndoHistory* history = NULL;
   std::unique_ptr<Page> ghostPage;
-  Timestamp fileLastMod = 0;
+  FileStat fileStat;  // document file when last loaded or saved; invalid if not tracked (e.g. new document)
+  bool extModWarned = false;  // user has been alerted about external modification of file (see checkExtModified)
+  // set when a save that can't prompt (autosave, app suspend) saved our version to a new file because the original
+  //  was modified by another app; ScribbleApp::checkExtModified() tells user and clears
+  std::string conflictOrigFile, conflictSavedTo;
+  void updateFileStat();
   bool autoSaveReq = false;
 
   StrokeBuilder* strokeBuilder = NULL;

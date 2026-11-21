@@ -138,6 +138,7 @@ bool Document::save(IOStream* outstrm, const char* thumb, saveflags_t flags)
     outstrm->truncate(0);  // this will reopen in wb+ mode
   if(!outstrm->is_open())
     return false;
+  outstrm->clearError();
 
   bool svgtop = fileinfo.extension() == "svg";
   bool singlefile = svgtop || !((flags & SAVE_MULTIFILE) || FSPath(fileinfo.basePath() + "_page001.svg").exists());
@@ -226,7 +227,14 @@ bool Document::save(IOStream* outstrm, const char* thumb, saveflags_t flags)
   else
     *outstrm << (outstring.c_str() + pos + 20);  // finish writing html - skip "<stopprintinghere />"
 
-  outstrm->flush();  //close();
+  if(!outstrm->flush() || !outstrm->good()) {
+    // write error (e.g. disk full): file is incomplete, so document must remain modified even if we saved to new
+    //  file, since the pages have been marked clean
+    for(Page* p : pages)
+      p->dirtyCount = UndoHistoryItem::SAVED_STATE_DISCARDED;
+    dirtyCount = UndoHistoryItem::SAVED_STATE_DISCARDED;
+    return false;
+  }
   if(ok && outstrm != blockStream.get())
     blockStream.reset(outstrm);
 
@@ -266,6 +274,30 @@ bool Document::saveBgz(IOStream* outstrm, const char* thumb, saveflags_t flags)
   if(!loadok && !(flags & SAVE_FORCE))
     return false;
 
+  // on failure (write error, e.g. disk full), restore state so that document remains modified and is consistent
+  //  w/ file: if saving to blockStream, file has been partially overwritten, so pages from startpage on (which are
+  //  all loaded) are kept dirty (so they can't be unloaded and will be rewritten) and only block info for pages
+  //  before startpage is kept; if saving to a new stream, blockStream (and so blockInfo) is unchanged
+  const bool inplace = outstrm == blockStream.get();
+  const size_t startpage = pagenum;
+  const std::vector<bgz_block_info_t> prevBlockInfo = blockInfo;
+  std::vector<std::pair<int, int>> prevPageState;  // dirtyCount, blockIdx
+  for(size_t ii = startpage; ii < pages.size(); ++ii)
+    prevPageState.emplace_back(pages[ii]->dirtyCount, pages[ii]->blockIdx);
+  size_t keepBlocks = 0;  // block info entries still valid for in-place save
+  auto fail = [&]() {
+    blockInfo = prevBlockInfo;
+    if(inplace)
+      blockInfo.resize(keepBlocks);
+    for(size_t ii = startpage; ii < pages.size(); ++ii) {
+      pages[ii]->dirtyCount = inplace ? UndoHistoryItem::SAVED_STATE_DISCARDED : prevPageState[ii - startpage].first;
+      pages[ii]->blockIdx = prevPageState[ii - startpage].second;
+    }
+    if(inplace)
+      dirtyCount = UndoHistoryItem::SAVED_STATE_DISCARDED;
+    return false;
+  };
+
   // now it is safe to close stream
   if(!(flags & SAVE_BGZ_PARTIAL) || outstrm != blockStream.get())
     blockInfo.clear();
@@ -279,19 +311,22 @@ bool Document::saveBgz(IOStream* outstrm, const char* thumb, saveflags_t flags)
     // writing entire file
     outstrm->truncate(0);
     if(!outstrm->is_open())
-      return false;
+      return fail();
+    outstrm->clearError();
     bgz_header(zoutstrm, MAX_BLOCK_INFO_COUNT*sizeof(bgz_block_info_t));
     blockInfo.push_back({uint32_t(outstrm->tell()), crc_32, len, 0});
     tempstrm << SVGZ_HEADER;
     tempstrm.seek(0);
     nout = miniz_go(level | MINIZ_GZ_NO_FINISH, ztempstrm, zoutstrm, &crc_32);
-    if(nout < 0) return false;
+    if(nout < 0) return fail();
     len += (uint32_t)nout;
     blockInfo.push_back({uint32_t(outstrm->tell()), crc_32, len, 0});
   }
   else {
     // writing partial file starting at pagenum
     size_t blockidx = pagenum+1;
+    keepBlocks = blockidx+1;
+    outstrm->clearError();
     outstrm->seek(blockInfo[blockidx].offset);
     crc_32 = blockInfo[blockidx].crc32_cum;
     len = blockInfo[blockidx].len_cum;
@@ -310,7 +345,7 @@ bool Document::saveBgz(IOStream* outstrm, const char* thumb, saveflags_t flags)
     ok = p->saveSVG(tempstrm, SVGZ_BORDER, totalheight) && ok;
     tempstrm.seek(0);
     nout = miniz_go(level | MINIZ_GZ_NO_FINISH, ztempstrm, zoutstrm, &crc_32);
-    if(nout < 0) return false;
+    if(nout < 0) return fail();
     len += (uint32_t)nout;
     blockInfo.push_back({uint32_t(outstrm->tell()), crc_32, len, 0});
 
@@ -346,7 +381,7 @@ bool Document::saveBgz(IOStream* outstrm, const char* thumb, saveflags_t flags)
 
   tempstrm.seek(0);
   nout = miniz_go(level, ztempstrm, zoutstrm, &crc_32);  // final block
-  if(nout < 0) return false;
+  if(nout < 0) return fail();
   len += (uint32_t)nout;
   blockInfo.push_back({uint32_t(outstrm->tell()), crc_32, len, 0});
 
@@ -354,9 +389,10 @@ bool Document::saveBgz(IOStream* outstrm, const char* thumb, saveflags_t flags)
   // seek back to extra header region and write index (unless too long)
   bgz_write_index(zoutstrm, blockInfo.data(), blockInfo.size() > MAX_BLOCK_INFO_COUNT ? 0 : blockInfo.size());
 
-  outstrm->flush();
-  if(blockInfo.back().offset < fileSize)
-    ok = outstrm->truncate(blockInfo.back().offset + 8) && ok;
+  if(!outstrm->flush() || !outstrm->good())
+    return fail();
+  if(blockInfo.back().offset < fileSize && !outstrm->truncate(blockInfo.back().offset + 8))
+    return fail();
   if(ok)
     dirtyCount = 0;
   if(ok && outstrm != blockStream.get())

@@ -125,7 +125,10 @@ void ScribbleDoc::newDocument()
   if(scribbleMode)
     ghostPage.reset(generatePage(INT_MAX));
   //fileName = "";
-  fileLastMod = 0;
+  fileStat = FileStat();
+  extModWarned = false;
+  conflictOrigFile.clear();
+  conflictSavedTo.clear();
   uiChanged(UIState::SetDoc);
   document->bookmarksDirty = false;
   app->repaintBookmarks(true);
@@ -221,19 +224,117 @@ Document::loadresult_t ScribbleDoc::openDocument(IOStream* strm, bool delayload)
   document->bookmarksDirty = false;
   app->repaintBookmarks(true);
   doRefresh();
-#if !PLATFORM_IOS
-  fileLastMod = getFileMTime(fileName());
-#endif
+  updateFileStat();
   return res;
+}
+
+void ScribbleDoc::updateFileStat()
+{
+  IOStream* strm = document->blockStream.get();
+  bool track = !PLATFORM_IOS && strm && strm->type() == IOStream::FILESTREAM && strm->name()[0];
+  fileStat = track ? getFileStat(static_cast<FileStream*>(strm)->file) : FileStat();
+  extModWarned = false;
+}
+
+static bool sameContent(FileStream* strm, const char* path)
+{
+  FILE* f = fopen(path, "rb");
+  if(!f)
+    return false;
+  long pos = strm->tell();
+  strm->seek(0);
+  std::vector<char> a(1 << 20), b(1 << 20);
+  bool same = true;
+  while(same) {
+    size_t na = strm->read(a.data(), a.size());
+    size_t nb = fread(b.data(), 1, b.size(), f);
+    same = na == nb && memcmp(a.data(), b.data(), na) == 0;
+    if(na < a.size())
+      break;
+  }
+  fclose(f);
+  strm->seek(pos);
+  return same;
+}
+
+// compare file at fileName() to the file we loaded or last saved, which we still have open (document->blockStream)
+// - modification time is not enough: sync clients (e.g. Google Drive), rsync -t, and `cp -p` preserve it when
+//  replacing a file, and it may have 1 second resolution, so file identity (device, inode) and size are also checked
+// - if file has been replaced by an identical copy (as some sync clients do), we switch to the new file, so that
+//  saving writes to it instead of to the unlinked file we have open (losing all changes)
+ScribbleDoc::FileState ScribbleDoc::checkFile()
+{
+  IOStream* strm = document->blockStream.get();
+  if(!fileStat.isValid() || !strm || strm->type() != IOStream::FILESTREAM || !strm->name()[0])
+    return FILE_UNCHANGED;
+  FileStream* fstrm = static_cast<FileStream*>(strm);
+  FileStat st = getFileStat(fstrm->name());
+  if(!st.isValid())
+    return FILE_DELETED;
+  if(st == fileStat)
+    return FILE_UNCHANGED;
+  if(st.sameFile(fileStat) || st.size != fileStat.size || !fstrm->is_open() || !sameContent(fstrm, fstrm->name()))
+    return FILE_MODIFIED;
+  // replaced by identical copy - block info, etc. remain valid
+  FileStream* newstrm = new FileStream(fstrm->name(), "rb+");
+  if(!newstrm->is_open()) {
+    delete newstrm;
+    return FILE_MODIFIED;  // let user decide
+  }
+  PLATFORM_LOG("%s was replaced by an identical copy\n", newstrm->name());
+  document->blockStream.reset(newstrm);
+  updateFileStat();
+  return FILE_UNCHANGED;
+}
+
+// name for saving our version when file has been modified by another app and we can't prompt
+static std::string conflictFileName(const std::string& path)
+{
+  FSPath info(path);
+  std::string base = info.basePath() + " - conflict";
+  std::string ext = info.extension();
+  std::string name = base + "." + ext;
+  for(int ii = 2; FSPath(name).exists(); ++ii)
+    name = fstring("%s %d.%s", base.c_str(), ii, ext.c_str());
+  return name;
 }
 
 bool ScribbleDoc::saveDocument(const char* filename, Document::saveflags_t flags)
 {
-  return saveDocument(filename ? new FileStream(filename, "wb+") : NULL, flags);
+  if(!filename)
+    return saveDocument((IOStream*)NULL, flags);
+  // opening the file truncates it, so make sure we'll be able to save first (otherwise, e.g., "Discard Other"
+  //  could leave an empty file if pages we haven't loaded were overwritten by another app)
+  if(!document->ensurePagesLoaded() && !(flags & Document::SAVE_FORCE))
+    return false;
+  return saveDocument(new FileStream(filename, "wb+"), flags);
 }
 
 bool ScribbleDoc::saveDocument(IOStream* strm, Document::saveflags_t flags)
 {
+  if(!strm) {
+    // saving to current file: never write to file if another app has replaced it (we'd write to the unlinked file
+    //  we have open) or modified it (partial save would corrupt it); callers that can prompt the user
+    //  (ScribbleApp::doSave()) call checkExtModified() first, so here we can't prompt (autosave, app suspend)
+    FileState state = checkFile();
+    if(state != FILE_UNCHANGED) {
+      std::string path = fileName();
+      if(state == FILE_DELETED || !cfg->Bool("warnExtModified"))
+        strm = new FileStream(path.c_str(), "wb+");  // write whole file to path
+      else {
+        // keep both versions: ours is saved to new file (which becomes the document file)
+        std::string newpath = conflictFileName(path);
+        PLATFORM_LOG("%s was modified by another app; saving to %s\n", path.c_str(), newpath.c_str());
+        strm = new FileStream(newpath.c_str(), "wb+");
+        conflictOrigFile = path;
+        conflictSavedTo = newpath;
+      }
+      if(!strm->is_open()) {
+        delete strm;
+        return false;
+      }
+    }
+  }
   if(!strm)
     flags |= Document::SAVE_BGZ_PARTIAL;  // whole file will be written if this is not set
 
@@ -261,13 +362,17 @@ bool ScribbleDoc::saveDocument(IOStream* strm, Document::saveflags_t flags)
   else
     ok = document->save(strm, NULL, flags);
   if(ok) {
-#if !PLATFORM_IOS
-    fileLastMod = getFileMTime(fileName());
-#endif
+    updateFileStat();
     app->refreshUI(this, (1 << UIState::SaveDoc));
   }
-  else
+  else {
+    // in-place save failed (e.g. disk full): file was modified by us, not another app
+    if(!strm)
+      updateFileStat();
     delete strm;
+    conflictOrigFile.clear();
+    conflictSavedTo.clear();
+  }
 
   return ok;
 }

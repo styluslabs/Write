@@ -1846,19 +1846,29 @@ bool ScribbleApp::checkExtModified(ScribbleDoc* doc)
 #if PLATFORM_IOS || PLATFORM_EMSCRIPTEN
   return false;
 #else
+  // autosave or app suspend saved our version to new file because of external modification (see
+  //  ScribbleDoc::saveDocument())
+  if(!doc->conflictSavedTo.empty()) {
+    std::string msg = fstring(_("%s has been modified outside Write, so your changes have been saved to %s."),
+        docShortName(doc->conflictOrigFile).c_str(), docShortName(doc->conflictSavedTo).c_str());
+    doc->conflictOrigFile.clear();
+    doc->conflictSavedTo.clear();
+    setActiveArea(doc->activeArea);
+    messageBox(Warning, _("Changes saved to new file"), msg);
+  }
   std::string filename = doc->fileName();
-  if(filename.empty() || doc->fileLastMod == 0 || !cfg->Bool("warnExtModified"))
+  if(filename.empty() || doc->extModWarned || !cfg->Bool("warnExtModified"))
     return false;
-  const Timestamp lastmod = getFileMTime(filename.c_str());
-  if(lastmod == doc->fileLastMod)
+  ScribbleDoc::FileState filestate = doc->checkFile();
+  if(filestate == ScribbleDoc::FILE_UNCHANGED)
     return false;
-  doc->fileLastMod = 0;  // prevent additional alerts until document is saved or reloaded
+  doc->extModWarned = true;  // prevent additional alerts until document is saved or reloaded
 
   setActiveArea(doc->activeArea);
   // just reload if our version isn't modified
   if(!doc->isModified()) {
     // assume external deletion was intentional
-    if(!FSPath(filename).exists()) {
+    if(filestate == ScribbleDoc::FILE_DELETED) {
       doNewDocument();
       return true;
     }
@@ -1903,6 +1913,7 @@ bool ScribbleApp::doSave(ScribbleDoc* doc)
 {
   if(!doc->fileName()[0])
     return false;
+  doc->extModWarned = false;  // explicit save: always prompt if file was modified externally
   if(checkExtModified(doc))
     return true;
   if(doc->saveDocument())
