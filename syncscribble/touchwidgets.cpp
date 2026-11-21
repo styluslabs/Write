@@ -279,36 +279,3 @@ Button* Menubar::addAction(Action* action)
 Menubar* createMenubar() { return new Menubar(widgetNode("#toolbar")); }
 Menubar* createVertMenubar() { return new Menubar(widgetNode("#vert-toolbar")); }
 
-// previously, adjFn only made one adjustment and was called in a loop, but having adjFn drive the layout
-//  process instead allows for simplier code and potentially more efficiency
-void AutoAdjContainer::repeatLayout(const Rect& dest)
-{
-  //window()->absPosNodes.erase(window()->absPosNodes.begin() + numAbsPos, window()->absPosNodes.end());
-  window()->gui()->layoutWidget(contents, dest);
-}
-
-// if this is useful, we can move to widgets.cpp as generic recursive layout container
-AutoAdjContainer::AutoAdjContainer(SvgNode* n, Widget* _contents) : Widget(n), contents(_contents)
-{
-  addWidget(contents);
-
-  onApplyLayout = [this](const Rect& src, const Rect& dest){
-    // fit contents to container
-    //numAbsPos = window()->absPosNodes.size();
-    window()->gui()->layoutWidget(contents, dest);
-    adjFn(src, dest);
-    contentsBBox = contents->node->bounds();
-    return true;
-  };
-
-  onPrepareLayout = [this](){
-    // we will typically only stretch along one direction - need to get content size for other direction
-    if(contentsBBox.isValid())
-      return contentsBBox.toSize();
-    //contents->setLayoutTransform(Transform2D());
-    //setLayoutTransform(Transform2D());
-    window()->gui()->layoutWidget(contents, Rect::wh(0, 0));
-    Rect bbox = contents->node->bounds();
-    return bbox.toSize();
-  };
-}

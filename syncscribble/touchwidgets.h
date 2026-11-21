@@ -68,20 +68,6 @@ public:
 Menubar* createMenubar();
 Menubar* createVertMenubar();
 
-class AutoAdjContainer : public Widget
-{
-public:
-  AutoAdjContainer(SvgNode* n, Widget* _contents);
-  void repeatLayout(const Rect& dest);
-
-  std::function<void(const Rect&, const Rect&)> adjFn;
-  Widget* contents;
-  Rect contentsBBox;
-
-//private:
-//  int numAbsPos = 0;
-};
-
 // tooltip for widget with long press/right click action
 #define altTooltip(s1, s2) fstring("<text>%s\n<tspan y='14' class='alttext'>%s</tspan></text>", s1, s2).c_str()
 
