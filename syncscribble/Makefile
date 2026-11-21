@@ -294,6 +294,7 @@ TEST_SOURCES = \
   ../scribbletest/headless.cpp \
   ../scribbletest/redrawcheck.cpp \
   ../scribbletest/swbservertest.cpp \
+  ../scribbletest/filetest.cpp \
   ../scribbletest/testmain.cpp \
   $(AUTOMATION_SOURCES)
 TEST_LIBS = -lEGL
